@@ -1,0 +1,274 @@
+# ============================================================
+#  VTpa —— 跨服传送请求配置（Velocity 代理端）
+#  改完之后：游戏内敲 /vtpa reload（需要 vtpa.reload 权限），
+#            或者在控制台直接敲 /vtpa reload
+#  ⚠️ 写在 # 后面的是注释。注意：没加引号的值不要在同一行再写 # 注释。
+# ============================================================
+
+# ------------------------------------------------------------
+# 服务器名单：哪些子服能用传送请求
+#   blacklist = 名单里的服不能用（默认，空名单 = 全都行）
+#   whitelist = 只有名单里的服能用（空名单 = 全服都不能用，慎用）
+# 服名写 velocity.toml 的 [servers] 里的名字，大小写不敏感
+#
+# 判定是「双向」的：发起者所在的服 和 目标所在的服 都得通过，
+# 只要有一边不在名单里，这个请求就发不出去（提示语见 messages.server-denied-*）。
+# 例：想让起床服完全隔离 → mode = "blacklist"、list = ["bedwars"]
+# ------------------------------------------------------------
+[servers]
+mode = "blacklist"
+list = []
+
+# ------------------------------------------------------------
+# 权限：没在 LuckPerms 里配过的权限节点算不算有？
+#   true  = 基础节点（use / here / accept / deny / cancel / toggle）默认人人可用
+#   false = 必须去 LuckPerms 显式给，不给就发不出请求
+# ⚠️ 特权节点不受这一项影响，一律要显式给：
+#   vtpa.all（/tpaall）、vtpa.reload、各种 bypass
+# ------------------------------------------------------------
+[permissions]
+allow-by-default = true
+
+# ------------------------------------------------------------
+# 基本规则
+#   request-timeout-seconds   请求多久没人理就自动作废（默认 180 秒 = 3 分钟）
+#   teleport-delay-seconds    对方同意之后，倒计多少秒才真正传送（默认 3 秒）
+#   cooldown-seconds          两次发起请求之间隔多久（秒）。0 = 不限
+#   max-outgoing-requests     一个人最多同时挂着几个「已发出、还没被处理」的请求
+#   allow-cross-server        允许跨服请求（A 在生存、B 在生电也算）
+#   allow-same-server         允许同服请求（两人在同一个子服）
+#   notify-on-expire          请求过期时通知双方
+#   notify-on-disconnect      请求未处理、当事人掉线时通知另一方
+# ------------------------------------------------------------
+[general]
+request-timeout-seconds = 180
+teleport-delay-seconds = 3
+cooldown-seconds = 5
+max-outgoing-requests = 3
+allow-cross-server = true
+allow-same-server = true
+notify-on-expire = true
+notify-on-disconnect = true
+
+# ------------------------------------------------------------
+# 同意之后的倒计时显示
+#   enabled = false 就不显示（但延迟照旧）
+#   mode    = title（屏幕正中大字）/ actionbar（物品栏上方）/ both / none
+# 占位符：#seconds# = 还剩几秒，#player# = 另一方名字，#server# = 目标服
+# ------------------------------------------------------------
+[countdown]
+enabled = true
+mode = "title"
+title = "&b#seconds#"
+subtitle = "&7正在传送，请不要移动"
+actionbar = "&b#seconds# &7秒后传送到 &e#player# &7那里，请不要移动"
+fade-in-ticks = 2
+stay-ticks = 20
+fade-out-ticks = 4
+
+# ------------------------------------------------------------
+# 粒子特效（移植自 CMI 的 tpaWarmup / TeleportEffects）
+#
+#   写法跟 CMI 的 Settings/ParticleEffects.yml 一模一样，用 ; 分隔：
+#     effect   粒子名（flying_glyph 符文 / reddust 红石粉 / heart 爱心 / crit / flame / portal …）
+#     c       颜色 "r,g,b"；写 rs 是彩虹色
+#     part    每一圈撒几个粒子      radius/r  半径（格）
+#     offset  相对玩家的偏移 x,y,z  move      每 tick 漂移（"0,0.33,0" = 往上冲的光柱）
+#     pitch   环的朝向（90 = 水平环，套在玩家身上那种）
+#     yawc    每 tick 转多少度（环就转起来了）
+#     dur     时长（秒）；关键字 twist = 扭转、static = 钉在原地不跟人
+#   上面那三串就是 CMI 默认文件里 tpaWarmup / TpUp / TpDown 的原值，照抄即可。
+#
+#   ⚠️ 特效是子服（VTpaBridge）撒的，代理撒不了粒子。子服没装桥接就不会有效果，
+#      但传送本身照常 —— 特效永远不影响能不能传。
+# ------------------------------------------------------------
+[particles]
+enabled = true
+# 只给确认装了桥接的子服发特效；false = 不管有没有装都发（白发而已，无害）
+require-bridge = true
+# 倒计时期间在被传送那个人身上一直转的（CMI 的 tpaWarmup）
+countdown = "circle;effect:flying_glyph;dur:5;pitchc:15;part:10;offset:0,1.7,0;radius:0.5;yawc:12;color:rs;pitch:90"
+# 传送那一瞬间在出发地撒的（CMI 的 TpUp）
+depart = "circle;c:200,50,210;twist;part:5;r:0.5;pitch:90;move:0,0.33,0;offset:0,-0.2,0"
+# 落地那一瞬间在落点撒的（CMI 的 TpDown）
+arrive = "circle;c:150,50,10;part:5;r:0.5;pitch:90;move:0,-0.33,0;offset:0,2.2,0"
+# 倒计时被打断（移动了 / 取消了 / 失败）时撒一下；空串 = 不播
+cancel = ""
+# 时长（tick，20 = 1 秒）。countdown 不用管，自动按倒计时秒数算。
+depart-ticks = 15
+arrive-ticks = 15
+cancel-ticks = 10
+# 一个人身上最多同时挂几段特效，超了先掐掉最老的（防刷屏卡顿）
+max-per-player = 4
+
+# ------------------------------------------------------------
+# 「倒计时期间玩家移动了就作废」的检测
+#   ⚠️ 这一项要靠子服装了 VTpaBridge 才准 —— 代理本身拿不到坐标。
+#      子服没装桥接时这一项自动失效（等于不检测），不会误判。
+#   tolerance            位移超过多少方块算「动了」（默认 0.6，站桩/微动不算）
+#   poll-interval-millis 多久问一次坐标（默认 250 毫秒）
+#   cancel-on-world-change 换了世界（比如被别的插件传走）直接作废
+# ------------------------------------------------------------
+[movement]
+enabled = true
+tolerance = 0.6
+poll-interval-millis = 250
+cancel-on-world-change = true
+
+# ------------------------------------------------------------
+# 发给被请求者的那条消息（最后两个 #accept# / #deny# 会变成可点击的按钮）
+# 占位符：
+#   %player%（也认 #player#）= 发起请求的人
+#   %server%（也认 #server#）= 发起请求的人所在的服
+#   %time%                   = 这个请求还剩多少秒失效
+#   #accept# / #deny#        = 接受 / 拒绝按钮（具体长啥样在 [buttons] 里配）
+# ------------------------------------------------------------
+[request]
+tpa = "&e%player% &7请求传送到你这里! #accept# #deny#"
+here = "&e%player% &7请求你传送到他那里! #accept# #deny#"
+
+# ------------------------------------------------------------
+# 按钮长什么样
+#   *-text     按钮上显示的文字
+#   *-hover    鼠标悬停时显示的文字（写 \n 换行）
+#   *-command  点一下会执行什么（%player% 换成发起者的名字，
+#              所以带名字的 /tpaccept 能精确对上那一条请求，不怕同时有多个）
+# ------------------------------------------------------------
+[buttons]
+accept-text = "&a&l[接受]"
+accept-hover = "&a点击接受 &e%player% &a的传送请求\n&7也可以自己敲 /tpaccept %player%"
+accept-command = "/tpaccept %player%"
+deny-text = "&c&l[拒绝]"
+deny-hover = "&c点击拒绝 &e%player% &c的传送请求\n&7也可以自己敲 /tpadeny %player%"
+deny-command = "/tpadeny %player%"
+
+# ------------------------------------------------------------
+# 各种提示语。占位符会被自动替换，每条前面会自动拼上下面的 prefix
+#   #player#  另一方名字      #target#   目标玩家名字
+#   #server#  服务器名        #seconds#  秒数
+#   #amount# / #skipped#     /tpaall 发出去多少、跳过了多少
+#   #max#     上限            #reason#   失败原因
+#   #label#   玩家实际敲的命令（走 /tpa 就是 /tpa，走 /vtpa tpa 就是 /vtpa tpa）
+# ------------------------------------------------------------
+[messages]
+prefix = "&8[&b传送&8]&r"
+no-permission = "&c你没有权限这么做（缺 #permission#）。"
+players-only = "&c这条命令只有玩家能用。"
+unknown-subcommand = "&c没有 &7#sub# &c这个子命令，敲 &f#label# &c看列表。"
+usage-tpa = "&7用法：&f#label# <玩家>"
+usage-tpaccept = "&7用法：&f#label# [玩家]"
+usage-tpadeny = "&7用法：&f#label# [玩家]"
+usage-tpacancel = "&7用法：&f#label# [玩家]"
+usage-tpaall = "&7用法：&f#label#"
+usage-tpatoggle = "&7用法：&f#label# [on|off]"
+player-not-found = "&c找不到在线玩家 &7#target#&c。"
+ambiguous-target = "&7#target# &c有多个人名匹配，多打几个字。"
+target-connecting = "&7#target# &c还在登录中，等他进服了再试。"
+self-request = "&c不能向自己发送传送请求。"
+cooldown = "&c慢一点，还要 &7#seconds# &c秒。"
+server-denied-self = "&c你所在的服务器（&7#server#&c）不能使用传送请求。"
+server-denied-target = "&7#target# &c所在的服务器不能使用传送请求。"
+cross-server-disabled = "&c没有开启跨服传送请求。"
+same-server-disabled = "&c没有开启同服传送请求。"
+request-sent = "&a已向 &7#target# &a发送传送请求，等对方响应（&7#seconds# &a秒内有效）。"
+request-sent-all = "&a已向 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）。"
+already-pending = "&c你已经给 &7#target# &c发过请求了，还剩 &7#seconds# &c秒。等它过期，或者敲 &f/vtpa cancel #target# &c取消。"
+reverse-pending = "&7#target# &c已经给你发过一个请求了，先处理那一个吧。"
+too-many-outgoing = "&c你挂着的请求太多了（最多 #max# 个），先处理掉几个。"
+target-disabled = "&7#target# &c关掉了传送请求。"
+target-busy = "&7#target# &c正在传送倒计时中，等一下。"
+self-busy = "&c你正在传送倒计时中，先等这趟传送完。"
+no-incoming = "&c你没有待处理的传送请求。"
+pick-one = "&c你有多个待处理请求，指定一个：&f#list#"
+# 下面这些 *-self 是「做事的那个人」看到的，*-other 是「另一方」看到的
+accepted-self = "&a已接受 &7#player# &a的请求，&7#seconds# &a秒后开始传送。"
+accepted-other = "&7#player# &a接受了你的请求，&7#seconds# &a秒后传送过去。"
+denied-self = "&a已拒绝 &7#player# &c的请求。"
+denied-other = "&7#target# &c拒绝了你的传送请求。"
+cancelled-self = "&a已取消发给 &7#target# &c的请求。"
+cancelled-other = "&7#player# &c取消了他发给你的请求。"
+cancelled-none = "&c你没有待处理的发出请求。"
+expired-self = "&7#player# &c发给你的请求超时作废了。"
+expired-other = "&c你发给 &7#target# &c的请求超时作废了。"
+offline-abort = "&c对方已经下线，传送请求作废。"
+countdown-moved = "&c你在传送倒计时中移动了，传送取消。"
+countdown-moved-other = "&7#player# &c在倒计时中移动了，传送取消。"
+countdown-switch = "&c你在传送倒计时中切换了服务器，传送取消。"
+teleport-done = "&a传送完成。"
+teleport-failed = "&c传送失败：&7#reason#"
+bridge-missing = "&c&7#server# &c这个服没有装 VTpaBridge，没法传送到具体位置。"
+bridge-missing-cross = "&c&7#server# &c这个服没有装 VTpaBridge，只能把你送到那个服的出生点。"
+toggle-off = "&a已关闭接收别人的传送请求。"
+toggle-on = "&a已恢复接收传送请求。"
+reloaded = "&a配置已重新加载。"
+reload-failed = "&c配置加载失败，用的还是旧配置。原因：#reason#"
+switching = "&7正在把你送到 &e#server#&7…"
+
+# ------------------------------------------------------------
+# 与子服配套组件（VTpaBridge）的通信
+#   channel              插件消息通道名，两边必须一致（改了要重启，且子服同步改）
+#   missing              子服没装 VTpaBridge 时怎么办：
+#                          deny   = 直接拒绝，提示装插件
+#                          switch = 跨服的话只把人切到对方那个服（落到出生点），
+#                                   同服的话因为啥也干不了，仍然拒绝
+#   timeout-millis       问子服要坐标最多等多久（超时就当这个服没装桥接）
+#   ping-interval-seconds 多久给各个有人的服发一次心跳，用来判断桥接在不在
+# ------------------------------------------------------------
+[bridge]
+channel = "vtpa:main"
+missing = "switch"
+timeout-millis = 1200
+ping-interval-seconds = 30
+
+# ------------------------------------------------------------
+# 命令名与别名
+#   整个插件只有一个命令入口：/vtpa。所有功能都是它的子命令。
+#   root = 主命令 /vtpa 的别名（想叫 /vt 之外的名字就改这里，写 [] 就只用 /vtpa）
+#   下面每一行是「子命令主名 = [别名...]」，别名是 /vtpa 后面敲的那个词，
+#   不参与 Velocity 的命令注册，所以跟别的插件撞名也没事。
+# ------------------------------------------------------------
+[commands]
+root = ["vt"]
+tpa = []
+tpahere = ["tpask", "tphere"]
+tpaccept = ["tpyes", "tpok"]
+tpadeny = ["tpano", "tpno", "tpdeny"]
+tpaall = ["tpall"]
+tpacancel = ["tpcancel"]
+tpatoggle = ["tptoggle"]
+reload = ["rl"]
+version = ["info", "ver"]
+
+# ------------------------------------------------------------
+# 顶层快捷命令：把子命令直接注册成 /tpa、/tpaccept 这种短命令
+#   格式：命令名 = "子命令主名"（左边是要注册的命令名，右边是它干的事）
+#
+# ⚠️ 重点：代理上谁注册了命令谁说了算。这里注册了 /tpa，玩家敲 /tpa 就由代理处理，
+#   根本不会转发到后端子服 —— 也就是说后端自己的 /tpa（CMI 的那个）会被彻底盖掉。
+#   这是故意的：全服传送请求统一走 VTpa，顺带就跨服了。
+#   子服里带前缀的写法（/cmi tpa）不受影响，被接管的只是短命令。
+#
+# ⚠️ 命令名在起服时注册 —— 改这里要重启代理（config 的其它部分仍可 /vtpa reload）。
+# ⚠️ 名字被别的插件先占了会注册失败，起服日志里会有 WARN，插件其它功能不受影响。
+# 不想接管哪个就把那一行删掉（或注释掉）。
+# ------------------------------------------------------------
+[shortcuts]
+tpa = "tpa"
+tpahere = "tpahere"
+tpaccept = "tpaccept"
+tpadeny = "tpadeny"
+tpaall = "tpaall"
+tpacancel = "tpacancel"
+tpatoggle = "tpatoggle"
+
+# ------------------------------------------------------------
+# 杂项
+#   auto-reload = 改了本文件不用敲命令，自己会在几秒内热重载（按修改时间判断）
+#   log-to-console = 每次传送往控制台打一行（查纠纷用）
+#   save-toggles = /tpatoggle 关掉的接收开关要不要存盘（重启代理后还在）
+# ------------------------------------------------------------
+[advanced]
+auto-reload = false
+auto-reload-interval-seconds = 3
+log-to-console = true
+save-toggles = true

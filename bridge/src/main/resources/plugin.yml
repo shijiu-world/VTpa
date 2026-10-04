@@ -1,0 +1,7 @@
+name: VTpaBridge
+version: ${project.version}
+main: cn.shijiu.vtpa.bridge.VTpaBridge
+api-version: 1.13
+authors:
+  - 拾玖世界
+description: VTpa 的子服配套组件 —— 回报玩家坐标、执行落点传送。不装它，跨服只能落到出生点。

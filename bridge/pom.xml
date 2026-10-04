@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.shijiu</groupId>
+        <artifactId>vtpa-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>vtpa-bridge</artifactId>
+    <packaging>jar</packaging>
+
+    <name>VTpaBridge（子服配套）</name>
+    <description>VTpa 的子服组件：回报玩家坐标、执行落点传送。不装它，代理只能把人切到目标服的出生点。</description>
+
+    <build>
+        <finalName>VTpaBridge-${project.version}</finalName>
+        <resources>
+            <resource>
+                <directory>${project.basedir}/src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>papermc-repo</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <!-- 只用了 JavaPlugin / PluginMessageListener / Scheduler / Location 这些
+             1.13 就有的老 API，用 1.21.4 编译 → Paper、Leaf、Leaves、Purpur 全都能跑。 -->
+        <dependency>
+            <groupId>io.papermc.paper</groupId>
+            <artifactId>paper-api</artifactId>
+            <version>1.21.4-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>
