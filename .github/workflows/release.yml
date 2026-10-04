@@ -22,11 +22,11 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 两端都 --release 17；JDK 21 才读得了 bridge 用的 paper-api（class 65）
       - name: 准备 JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -54,7 +54,7 @@ jobs:
           ls -l dist
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VTpa
           path: dist/*.jar
