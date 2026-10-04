@@ -24,16 +24,12 @@ list = []
 #   true  = 基础节点（use / here / accept / deny / cancel / toggle）默认人人可用
 #   false = 必须去 LuckPerms 显式给，不给就发不出请求
 # ⚠️ 特权节点不受这一项影响，一律要显式给：
-#   vtpa.all（/tpaall）、vtpa.reload、各种 bypass
+#   vtpa.all（/tpaall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
+# ⚠️ 移动取消【不】看权限：倒计时期间谁动了都取消，OP / 管理员也不例外，
+#    没有任何节点能绕过。想整服关掉只能改下面的 movement.enabled = false。
 # ------------------------------------------------------------
 [permissions]
 allow-by-default = true
-# 特权节点 vtpa.move.bypass（倒计时期间动一下也不取消）要不要生效。
-#   默认 false = 不看这个权限，谁动都取消 —— 包括有 vtpa.* / * 通配符的管理员。
-#   ⚠️ 设成 true 才会去查权限节点。那时候要注意：LuckPerms 给管理组发了 vtpa.* 或 *
-#      的话，它会被判定为「有」，表现就是「别人动一下就取消，管理员动了照样传」。
-#      真要给特权，建议单独发 vtpa.move.bypass，别用通配符。
-move-bypass = false
 
 # ------------------------------------------------------------
 # 基本规则

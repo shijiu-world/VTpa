@@ -70,7 +70,6 @@ public final class Configuration {
     // ---------------- 服务器名单 / 权限 ----------------
     private final ServerFilter filter;
     private final boolean allowByDefault;
-    private final boolean moveBypassEnabled;
     // ---------------- 基本规则 ----------------
     private final long requestTimeoutSeconds;
     private final long teleportDelaySeconds;
@@ -144,7 +143,6 @@ public final class Configuration {
 
         this.allowByDefault = TomlLite.bool(m, "permissions.allow-by-default", true);
         // 默认 false：谁动都取消，连有通配符的管理员也不例外（想要特权就得显式开）
-        this.moveBypassEnabled = TomlLite.bool(m, "permissions.move-bypass", false);
 
         this.requestTimeoutSeconds = Math.max(1L, TomlLite.integer(m, "general.request-timeout-seconds", 180L));
         this.teleportDelaySeconds = Math.max(0L, TomlLite.integer(m, "general.teleport-delay-seconds", 3L));
@@ -347,16 +345,6 @@ public final class Configuration {
 
     public boolean allowByDefault() {
         return allowByDefault;
-    }
-
-    /**
-     * 特权节点 {@code vtpa.move.bypass}（倒计时期间动一下也不取消）要不要生效。
-     *
-     * <p>默认 false = 根本不去看这个权限，谁动都取消。想给管理特权就把
-     * {@code permissions.move-bypass} 改成 true，然后单独发那个节点（别用通配符）。
-     */
-    public boolean moveBypassEnabled() {
-        return moveBypassEnabled;
     }
 
     public long requestTimeoutSeconds() {

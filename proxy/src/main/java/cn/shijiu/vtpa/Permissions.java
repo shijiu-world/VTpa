@@ -50,8 +50,6 @@ public final class Permissions {
     public static final String SERVER_BYPASS = "vtpa.server.bypass";
     /** 不受「待处理请求数量上限」限制。 */
     public static final String LIMIT_BYPASS = "vtpa.limit.bypass";
-    /** 倒计时期间动一下也不取消传送（比如给管理用）。 */
-    public static final String MOVE_BYPASS = "vtpa.move.bypass";
     /** /vtpa reload。 */
     public static final String RELOAD = "vtpa.reload";
 

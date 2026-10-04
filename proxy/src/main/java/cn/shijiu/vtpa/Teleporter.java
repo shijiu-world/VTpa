@@ -172,11 +172,9 @@ public final class Teleporter {
             notify(moverId, "self-busy");
             return;
         }
-        // ⚠️ 默认压根不看 vtpa.move.bypass —— 否则 LuckPerms 给管理组发的 vtpa.* / *
-        //    会把它放通，表现就是「管理员动了照样传」，看着像插件坏了
-        final boolean wantCheck = config.movementEnabled()
-                && !(config.moveBypassEnabled()
-                        && Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false));
+        // ⚠️ 不看任何权限 —— 谁动都取消，OP / 有通配符的管理员也不例外。
+        //    想整服关掉就只能改 movement.enabled = false（那是对所有人都关）。
+        final boolean wantCheck = config.movementEnabled();
         final long delayMillis = Math.max(0L, config.teleportDelaySeconds()) * 1000L;
 
         // 移动检测优先交给子服（实时、准）；子服桥接太老才退回代理端轮询坐标
@@ -196,16 +194,10 @@ public final class Teleporter {
         countdown.pollToo = wantCheck && config.movementPollAlso();
         active.put(moverId, countdown);
         // 排查用：这一行能直接看出移动检测到底走的是哪条路（子服盯 / 代理轮询 / 压根没开）
-        // ⚠️ bypass 单独点名 —— LuckPerms 给了 vtpa.* 或 * 通配符的话它会是 true，
-        //    表现就是「别人动一下就取消，管理员动了照样传」，很像是坏了其实是权限放通了。
         plugin.logger().info("[vtpa] 移动检测："
                 + (!config.movementEnabled() ? "关（movement.enabled = false）"
-                : config.moveBypassEnabled()
-                        && Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false)
-                        ? "跳过 —— 这个号有 vtpa.move.bypass（检查 /lp user "
-                                + mover.get().getUsername() + " permission check vtpa.move.bypass）"
-                        : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
-                                + (countdown.pollToo ? "（同时代理也轮询，双保险）" : "")));
+                : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
+                        + (countdown.pollToo ? "（同时代理也轮询，双保险）" : "")));
 
         // 先把「基准坐标」抢到手 —— 这样轮询第一跳就能比，不用白等一轮
         if (countdown.pollToo) {

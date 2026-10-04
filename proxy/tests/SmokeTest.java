@@ -2,6 +2,7 @@ import cn.shijiu.vtpa.Backend;
 import cn.shijiu.vtpa.Colors;
 import cn.shijiu.vtpa.Configuration;
 import cn.shijiu.vtpa.FxSpec;
+import cn.shijiu.vtpa.Permissions;
 import cn.shijiu.vtpa.RequestStore;
 import cn.shijiu.vtpa.RequestType;
 import cn.shijiu.vtpa.TomlLite;
@@ -79,8 +80,10 @@ public class SmokeTest {
                 defaults.message("self-request").equals(defaults.rawMessage("self-request")));
         check("子服端移动检测默认开", defaults.movementBackend());
         check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
-        check("vtpa.move.bypass 默认不生效（谁动都取消，通配符也别想绕过）",
-                !defaults.moveBypassEnabled());
+        check("移动取消不看权限：配置里没有 permissions.move-bypass 了",
+                !map.containsKey("permissions.move-bypass"));
+        check("移动取消不看权限：vtpa.move.bypass 节点已删除（谁都绕不过，含 OP）",
+                !hasMoveBypassNode());
         check("默认竖直方向也算动（跳一下就取消，跟 CMI 一致）", !defaults.movementIgnoreY());
         check("默认容差 0 —— 动一下就取消", defaults.movementTolerance() == 0D);
         check("声音默认开", defaults.soundsEnabled());
@@ -212,6 +215,27 @@ public class SmokeTest {
             failures.add(name);
             System.out.println("  ❌ " + name);
         }
+    }
+
+    /**
+     * 移动取消有没有留权限后门：反射扫一遍权限类，看还认不认 {@code vtpa.move.bypass}。
+     * 认（常量还在 / 值对得上）就说明还有人能绕过 —— 这不该发生。
+     */
+    private static boolean hasMoveBypassNode() {
+        for (final java.lang.reflect.Field field : Permissions.class.getFields()) {
+            final String name = field.getName();
+            if (!name.endsWith("BYPASS")) {
+                continue;
+            }
+            try {
+                if ("vtpa.move.bypass".equals(field.get(null))) {
+                    return true;
+                }
+            } catch (final Exception ignored) {
+                // 静态常量读不出来就当没有，下一条断言会兜住
+            }
+        }
+        return false;
     }
 
     /** legacy 反序列化出来的往往是一棵树（每段一个颜色），递归看看有没有真的上色。 */
