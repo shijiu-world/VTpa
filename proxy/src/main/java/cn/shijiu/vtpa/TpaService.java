@@ -116,7 +116,7 @@ public final class TpaService {
             final boolean selfOk = config.filter().allows(selfServer);
             final boolean targetOk = config.filter().allows(targetServer);
             // 名单是空的时候（= 全参与）没什么可看的，别在 /tpaall 里刷一屏
-            if (config.logToConsole() && !config.filter().servers().isEmpty()) {
+            if (config.debug() && !config.filter().servers().isEmpty()) {
                 plugin.logger().info("[vtpa] 子服名单检查：" + requester.getUsername() + " @"
                         + (selfServer == null ? "?" : selfServer) + (selfOk ? " ✅" : " ❌")
                         + " → " + target.getUsername() + " @"
@@ -128,7 +128,7 @@ public final class TpaService {
             if (!targetOk) {
                 return "server-denied-target";
             }
-        } else if (config.logToConsole()) {
+        } else if (config.debug()) {
             plugin.logger().info("[vtpa] 子服名单检查：跳过 —— " + requester.getUsername()
                     + " 有 vtpa.server.bypass（检查 /lp user " + requester.getUsername()
                     + " permission check vtpa.server.bypass）");

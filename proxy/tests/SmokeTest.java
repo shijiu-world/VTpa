@@ -82,6 +82,7 @@ public class SmokeTest {
         check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
         check("子服名单默认对所有人生效（vtpa.server.bypass 默认不查）",
                 !defaults.serverBypassEnabled());
+        check("排查日志默认关（advanced.debug = false），控制台不刷屏", !defaults.debug());
         check("落点默认锁在「接受那一刻」（对方之后走动不影响落点）",
                 defaults.lockDestination()
                         && Boolean.TRUE.equals(map.get("general.lock-destination")));

@@ -268,6 +268,8 @@ public final class VTpa {
         } else {
             logger.info("[vtpa] 声音：关");
         }
+        logger.info("[vtpa] 排查日志：" + (config.debug() ? "开"
+                : "关（要排查就把 advanced.debug 改成 true，重载即可）"));
         logger.info("[vtpa] 桥接通道 " + config.bridgeChannel()
                 + "，子服没装桥接时：" + ("switch".equals(config.bridgeMissing())
                 ? "跨服只切服（落出生点）" : "拒绝"));

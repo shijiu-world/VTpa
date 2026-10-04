@@ -136,6 +136,7 @@ public final class Configuration {
     private final boolean autoReload;
     private final int autoReloadIntervalSeconds;
     private final boolean logToConsole;
+    private final boolean debug;
     private final boolean saveToggles;
 
     private Configuration(final Map<String, Object> m) {
@@ -266,6 +267,7 @@ public final class Configuration {
         this.autoReloadIntervalSeconds =
                 (int) Math.max(1L, TomlLite.integer(m, "advanced.auto-reload-interval-seconds", 3L));
         this.logToConsole = TomlLite.bool(m, "advanced.log-to-console", true);
+        this.debug = TomlLite.bool(m, "advanced.debug", false);
         this.saveToggles = TomlLite.bool(m, "advanced.save-toggles", true);
     }
 
@@ -665,8 +667,24 @@ public final class Configuration {
         return autoReloadIntervalSeconds;
     }
 
+    /**
+     * 传送记录（谁发给谁、传成功没）打不打 —— 这是日常运营日志。
+     *
+     * <p>跟 {@link #debug()} 的区别：那一项是<b>排查细节</b>（走哪条移动检测、落点锁在
+     * 哪、子服名单怎么判的），默认关；这一项默认开。
+     */
     public boolean logToConsole() {
         return logToConsole;
+    }
+
+    /**
+     * 排查用的细节日志打不打（{@code advanced.debug}）。
+     *
+     * <p>默认关 —— 平时控制台干干净净，出问题了开一下、复现一次、再关掉。
+     * 改完 {@code /vtpa reload} 就生效，不用重启。
+     */
+    public boolean debug() {
+        return debug;
     }
 
     public boolean saveToggles() {

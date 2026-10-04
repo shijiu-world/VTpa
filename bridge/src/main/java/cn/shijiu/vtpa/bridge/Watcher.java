@@ -41,6 +41,8 @@ public final class Watcher implements Listener {
 
     private final Map<UUID, Watch> watching = new ConcurrentHashMap<>();
     private final OnMove onMove;
+    /** 排查日志开不开（plugins/VTpaBridge/config.yml 的 debug）。 */
+    private final java.util.function.BooleanSupplier debug;
 
     private static final class Watch {
         /** 基准位置（倒计时开始那一瞬间站的地方）。 */
@@ -55,8 +57,9 @@ public final class Watcher implements Listener {
         }
     }
 
-    public Watcher(final OnMove onMove) {
+    public Watcher(final OnMove onMove, final java.util.function.BooleanSupplier debug) {
         this.onMove = onMove;
+        this.debug = debug;
     }
 
     /** 开始盯。玩家不在线 / 还没进服就直接放弃（代理那边会退回轮询或干脆不检测）。 */
@@ -67,8 +70,10 @@ public final class Watcher implements Listener {
         }
         watching.put(uuid, new Watch(player.getLocation(),
                 Math.max(0D, tolerance), (flags & Wire.WATCH_IGNORE_Y) != 0));
-        Bukkit.getLogger().info("[VTpaBridge] 开始盯 " + player.getName() + " 的移动（容差 "
-                + tolerance + " 格，忽略上下：" + ((flags & Wire.WATCH_IGNORE_Y) != 0) + "）");
+        if (debug.getAsBoolean()) {
+            Bukkit.getLogger().info("[VTpaBridge] 开始盯 " + player.getName() + " 的移动（容差 "
+                    + tolerance + " 格，忽略上下：" + ((flags & Wire.WATCH_IGNORE_Y) != 0) + "）");
+        }
     }
 
     public void unwatch(final UUID uuid) {
@@ -112,7 +117,10 @@ public final class Watcher implements Listener {
         }
         // 一次倒计时只报一次，报完就解除
         watching.remove(uuid);
-        Bukkit.getLogger().info("[VTpaBridge] " + event.getPlayer().getName() + " 动了，上报代理取消倒计时");
+        if (debug.getAsBoolean()) {
+            Bukkit.getLogger().info("[VTpaBridge] " + event.getPlayer().getName()
+                    + " 动了，上报代理取消倒计时");
+        }
         try {
             onMove.moved(uuid, locOf(to));
         } catch (final Exception e) {

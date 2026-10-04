@@ -203,10 +203,13 @@ public final class Teleporter {
         countdown.pollToo = wantCheck && config.movementPollAlso();
         active.put(moverId, countdown);
         // 排查用：这一行能直接看出移动检测到底走的是哪条路（子服盯 / 代理轮询 / 压根没开）
-        plugin.logger().info("[vtpa] 移动检测："
-                + (!config.movementEnabled() ? "关（movement.enabled = false）"
-                : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
-                        + (countdown.pollToo ? "（同时代理也轮询，双保险）" : "")));
+        // ⚠️ 只在 advanced.debug = true 时打 —— 每次传送都来一行的太吵了
+        if (config.debug()) {
+            plugin.logger().info("[vtpa] 移动检测："
+                    + (!config.movementEnabled() ? "关（movement.enabled = false）"
+                    : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
+                            + (countdown.pollToo ? "（同时代理也轮询，双保险）" : "")));
+        }
 
         // 先把「基准坐标」抢到手 —— 这样轮询第一跳就能比，不用白等一轮
         if (countdown.pollToo) {
@@ -252,7 +255,7 @@ public final class Teleporter {
             }
             countdown.destLoc = result.get();
             countdown.destLocServer = server;
-            if (plugin.configuration().logToConsole()) {
+            if (plugin.configuration().debug()) {
                 plugin.logger().info("[vtpa] 落点已锁定：" + countdown.destName + " @"
                         + (server == null ? "?" : server) + " " + result.get().world()
                         + " " + String.format(Locale.ROOT, "%.2f %.2f %.2f",
@@ -368,7 +371,7 @@ public final class Teleporter {
             if (countdown.done) {
                 return;
             }
-            if (plugin.configuration().logToConsole()) {
+            if (plugin.configuration().debug()) {
                 plugin.logger().info("[vtpa] 子服报告 " + countdown.moverName + " 移动到了 " + loc
                         + "，倒计时作废。");
             }

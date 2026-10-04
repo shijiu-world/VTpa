@@ -341,3 +341,7 @@ auto-reload = false
 auto-reload-interval-seconds = 3
 log-to-console = true
 save-toggles = true
+# debug = true 才打印排查用的细节日志（走的是哪条移动检测、落点锁在哪、
+#   子服名单判定、子服上报的移动…）。默认关 —— 平时控制台干干净净，
+#   出问题了开一下、复现一次、再关掉。改完 /vtpa reload 就生效，不用重启。
+debug = false

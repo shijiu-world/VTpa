@@ -46,7 +46,18 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
     private final Map<UUID, PendingTp> pending = new ConcurrentHashMap<>();
     private final Particles particles = new Particles(this);
     /** 倒计时期间的移动监视（代理发 WATCH 来开，这里负责实时判定）。 */
-    private final Watcher watcher = new Watcher((uuid, loc) -> reply(null, Wire.moved(uuid, loc)));
+    /**
+     * 移动监视。debug 那个 lambda 是<b>延迟求值</b>的 —— 在这儿（字段初始化时）
+     * 插件还没初始化完，读不了 config.yml；等真有人被盯的时候才调，那时早 ready 了。
+     */
+    private final Watcher watcher = new Watcher((uuid, loc) -> reply(null, Wire.moved(uuid, loc)),
+            () -> {
+                try {
+                    return getConfig().getBoolean("debug", false);
+                } catch (final Exception ignored) {
+                    return false;
+                }
+            });
 
     private static final class PendingTp {
         final Wire.Loc loc;
@@ -59,6 +70,7 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();   // 生成 plugins/VTpaBridge/config.yml（debug 开关在那儿）
         Bukkit.getMessenger().registerIncomingPluginChannel(this, CHANNEL, this);
         Bukkit.getMessenger().registerOutgoingPluginChannel(this, CHANNEL);
         Bukkit.getPluginManager().registerEvents(this, this);
