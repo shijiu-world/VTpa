@@ -9,12 +9,14 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 传送请求的业务逻辑：发请求、接受、拒绝、取消、过期、全员广播。
@@ -235,6 +237,88 @@ public final class TpaService {
      * 一律静默跳过，最后只给发起者一条汇总，免得刷屏。
      */
     public void sendToAll(final Player requester) {
+        final List<Player> everyone = new ArrayList<>(proxy().getAllPlayers());
+        everyone.removeIf(p -> p.getUniqueId().equals(requester.getUniqueId()));
+        batchSend(requester, everyone, "request-sent-all", "tpaall");
+    }
+
+    /**
+     * {@code /tpaserver} —— 只发给<b>跟我同一个子服</b>的人（跨服的不打扰）。
+     *
+     * <p>子服归属代理自己就知道，不用问子服，所以是同步的。
+     */
+    public void sendToServer(final Player requester) {
+        batchSend(requester, sameServerPlayers(requester), "request-sent-server", "tpaserver");
+    }
+
+    /**
+     * {@code /tpaworld} —— 只发给<b>跟我同一个子服、且同一个世界</b>的人。
+     *
+     * <p>⚠️ 世界是子服的概念，代理不知道谁在哪个世界，得先问一圈坐标
+     * （{@code Loc} 里带世界名）再筛。这一步是异步的，所以汇总会晚几十毫秒才发出来。
+     */
+    public void sendToWorld(final Player requester) {
+        final Configuration config = config();
+        // 1) 先问自己在哪个世界
+        plugin.backend().queryLocation(requester, self -> {
+            if (self.isEmpty()) {
+                plugin.send(requester, config.message("world-unknown"));
+                return;
+            }
+            final String myWorld = self.get().world();
+            final List<Player> candidates = sameServerPlayers(requester);
+            if (candidates.isEmpty()) {
+                batchSend(requester, List.of(), "request-sent-world", "tpaworld");
+                return;
+            }
+            // 2) 再挨个问他们的世界，全回来了一起筛
+            final Map<UUID, String> worlds = new ConcurrentHashMap<>();
+            final AtomicInteger left = new AtomicInteger(candidates.size());
+            for (final Player target : candidates) {
+                plugin.backend().queryLocation(target, loc -> {
+                    if (loc.isPresent()) {
+                        worlds.put(target.getUniqueId(), loc.get().world());
+                    }
+                    if (left.decrementAndGet() == 0) {
+                        final List<Player> same = new ArrayList<>();
+                        for (final Player p : candidates) {
+                            if (myWorld.equals(worlds.get(p.getUniqueId()))) {
+                                same.add(p);
+                            }
+                        }
+                        batchSend(requester, same, "request-sent-world", "tpaworld");
+                    }
+                });
+            }
+        });
+    }
+
+    /** 跟我同一个子服、且不是我的在线玩家。 */
+    private List<Player> sameServerPlayers(final Player requester) {
+        final String myServer = Backend.serverName(requester);
+        final List<Player> out = new ArrayList<>();
+        if (myServer == null) {
+            return out;
+        }
+        for (final Player p : new ArrayList<>(proxy().getAllPlayers())) {
+            if (p.getUniqueId().equals(requester.getUniqueId())) {
+                continue;
+            }
+            final String server = Backend.serverName(p);
+            if (server != null && server.equalsIgnoreCase(myServer)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 批量发「传送到我这儿」：不合适的人静默跳过，最后只回一条汇总（免得刷屏）。
+     *
+     * <p>{@code /tpaall}、{@code /tpaserver}、{@code /tpaworld} 三条共用这一段。
+     */
+    private void batchSend(final Player requester, final Collection<Player> targets,
+                           final String summaryKey, final String logName) {
         final Configuration config = config();
         if (!Permissions.has(requester, Permissions.COOLDOWN_BYPASS, false)) {
             final Long last = lastRequestAt.get(requester.getUniqueId());
@@ -242,7 +326,8 @@ public final class TpaService {
                 final long seconds = config.cooldownSeconds();
                 final long passed = (System.currentTimeMillis() - last) / 1000L;
                 if (seconds > 0 && passed < seconds) {
-                    plugin.send(requester, config.message("cooldown", "seconds", String.valueOf(seconds - passed)));
+                    plugin.send(requester, config.message("cooldown", "seconds",
+                            String.valueOf(seconds - passed)));
                     return;
                 }
             }
@@ -250,10 +335,7 @@ public final class TpaService {
         final long timeout = config.requestTimeoutSeconds() * 1000L;
         int sent = 0;
         int skipped = 0;
-        for (final Player target : new ArrayList<>(proxy().getAllPlayers())) {
-            if (target.getUniqueId().equals(requester.getUniqueId())) {
-                continue;
-            }
+        for (final Player target : targets) {
             if (rejection(requester, target, RequestType.HERE) != null) {
                 skipped++;
                 continue;
@@ -265,14 +347,16 @@ public final class TpaService {
                     RequestType.HERE, now, now + timeout);
             store().put(request);
             target.sendMessage(buildRequestMessage(request));
+            // 对方听到「叮」的一声（CMI 的 TpaRequest）
+            plugin.backend().sound(target, config.sound("request"));
             sent++;
         }
         lastRequestAt.put(requester.getUniqueId(), System.currentTimeMillis());
-        plugin.send(requester, config.message("request-sent-all",
+        plugin.send(requester, config.message(summaryKey,
                 "amount", String.valueOf(sent), "skipped", String.valueOf(skipped)));
         if (config.logToConsole()) {
-            plugin.logger().info("[vtpa] " + requester.getUsername() + " /tpaall：发出 " + sent
-                    + " 条，跳过 " + skipped + " 人。");
+            plugin.logger().info("[vtpa] " + requester.getUsername() + " /" + logName
+                    + "：发出 " + sent + " 条，跳过 " + skipped + " 人。");
         }
     }
 

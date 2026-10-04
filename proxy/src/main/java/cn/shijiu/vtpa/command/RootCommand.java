@@ -67,6 +67,10 @@ public final class RootCommand implements SimpleCommand {
                 Permissions.TOGGLE, true);
         add("tpaall", new TpaAllCommand(plugin), "tpaall", "请求全服玩家传送到我这儿",
                 Permissions.ALL, false);
+        add("tpaworld", new TpaWorldCommand(plugin), "tpaworld", "请求同世界的玩家传送到我这儿",
+                Permissions.WORLD, false);
+        add("tpaserver", new TpaServerCommand(plugin), "tpaserver", "请求本子服玩家传送到我这儿",
+                Permissions.SERVER, false);
         add("reload", new ReloadCommand(plugin), "reload", "重载配置",
                 Permissions.RELOAD, false);
         add("version", new VersionCommand(plugin), "version", "显示插件版本", null, false);

@@ -55,6 +55,14 @@ public class SmokeTest {
         check("顶层快捷命令默认接管 /tpa", map.containsKey("shortcuts.tpa"));
         check("顶层快捷命令默认接管 /tpaccept", map.containsKey("shortcuts.tpaccept"));
         check("顶层快捷命令默认接管 /tpaall", map.containsKey("shortcuts.tpaall"));
+        check("顶层快捷命令默认接管 /tpaworld", map.containsKey("shortcuts.tpaworld"));
+        check("顶层快捷命令默认接管 /tpaserver", map.containsKey("shortcuts.tpaserver"));
+        check("批量请求有各自的汇总文案", map.containsKey("messages.request-sent-world")
+                && map.containsKey("messages.request-sent-server"));
+        check("tpaworld 拿不到世界时有提示", map.containsKey("messages.world-unknown"));
+        check("两个新命令都要专门权限（不是基础节点）",
+                "vtpa.world".equals(cn.shijiu.vtpa.Permissions.WORLD)
+                        && "vtpa.server".equals(cn.shijiu.vtpa.Permissions.SERVER));
 
         // ---- Configuration ----
         final Configuration defaults = Configuration.defaults();

@@ -40,6 +40,10 @@ public final class Permissions {
     public static final String TOGGLE_BYPASS = "vtpa.toggle.bypass";
     /** 🔴 /tpaall —— 广播给全服，默认关，必须显式给。 */
     public static final String ALL = "vtpa.all";
+    /** 🔴 /tpaworld —— 请求「跟我同一个世界」的人传送过来，默认关，必须显式给。 */
+    public static final String WORLD = "vtpa.world";
+    /** 🔴 /tpaserver —— 请求「跟我同一个子服」的人传送过来，默认关，必须显式给。 */
+    public static final String SERVER = "vtpa.server";
     /** 不受发起冷却限制。 */
     public static final String COOLDOWN_BYPASS = "vtpa.cooldown.bypass";
     /** 不受子服黑白名单限制。 */
