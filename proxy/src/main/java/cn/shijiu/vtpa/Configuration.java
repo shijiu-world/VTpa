@@ -114,6 +114,7 @@ public final class Configuration {
     // ---------------- 移动检测 ----------------
     private final boolean movementBackend;
     private final boolean movementIgnoreY;
+    private final boolean movementPollAlso;
     // ---------------- 声音 ----------------
     private final boolean soundsEnabled;
     private final Map<String, String> sounds;
@@ -204,6 +205,7 @@ public final class Configuration {
                 TomlLite.string(m, "buttons.cancel-command", "/tpacancel %player%"));
 
         this.movementBackend = TomlLite.bool(m, "movement.backend-detection", true);
+        this.movementPollAlso = TomlLite.bool(m, "movement.backend-and-poll", true);
         // 默认 false：竖直方向动了也算（跳一下就取消），跟 CMI 一致
         this.movementIgnoreY = TomlLite.bool(m, "movement.ignore-y", false);
 
@@ -509,6 +511,16 @@ public final class Configuration {
     /** 只算水平距离：原地跳一下 / 被活塞顶一下不算「移动」。 */
     public boolean movementIgnoreY() {
         return movementIgnoreY;
+    }
+
+    /**
+     * 子服已经在盯了，代理还要不要<b>同时</b>自己轮询一遍（默认开）。
+     *
+     * <p>子服那条路万一没走通，移动取消会<b>静默失效</b>（玩家动了照样传走）。
+     * 多问几次坐标很便宜，失效很难查，所以默认双保险。
+     */
+    public boolean movementPollAlso() {
+        return movementPollAlso;
     }
 
     public boolean soundsEnabled() {

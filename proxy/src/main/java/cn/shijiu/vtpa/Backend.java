@@ -290,7 +290,11 @@ public final class Backend {
         if (server == null) {
             return false;
         }
-        if (!supports(server.getServerInfo().getName(), 1, 1, 0)) {
+        final String name = server.getServerInfo().getName();
+        if (!supports(name, 1, 1, 0)) {
+            // 排查用：之前移动取消「静默失效」多半栽在这里（版本没协商上就退回轮询了）
+            logger.info("[vtpa] 子服 " + name + " 的桥接版本是「" + versions.get(name.toLowerCase(java.util.Locale.ROOT))
+                    + "」，不支持移动监视 → 退回代理轮询。");
             return false;
         }
         return server.sendPluginMessage(channel, Wire.watch(player.getUniqueId(), tolerance,

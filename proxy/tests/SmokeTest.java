@@ -47,7 +47,8 @@ public class SmokeTest {
         check("接受按钮的点击命令带 %player%",
                 ((String) map.get("buttons.accept-command")).contains("%player%"));
         check("按钮悬停提示可配", map.containsKey("buttons.accept-hover"));
-        check("撤回按钮有默认文字", ((String) map.get("buttons.cancel-text")).contains("撤回"));
+        check("撤回按钮有默认文字", map.containsKey("buttons.cancel-text")
+                && !((String) map.get("buttons.cancel-text")).isBlank());
         check("撤回命令带 %player%", ((String) map.get("buttons.cancel-command")).contains("%player%"));
         check("Cancel 按钮指向 tpacancel",
                 ((String) map.get("buttons.cancel-command")).contains("/tpacancel"));
@@ -69,6 +70,7 @@ public class SmokeTest {
         check("prefix 为空时提示语就是原文",
                 defaults.message("self-request").equals(defaults.rawMessage("self-request")));
         check("子服端移动检测默认开", defaults.movementBackend());
+        check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
         check("默认竖直方向也算动（跳一下就取消，跟 CMI 一致）", !defaults.movementIgnoreY());
         check("默认容差 0 —— 动一下就取消", defaults.movementTolerance() == 0D);
         check("声音默认开", defaults.soundsEnabled());

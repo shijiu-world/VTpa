@@ -71,6 +71,13 @@ public final class Teleporter {
         volatile boolean done;
         /** 移动检测是不是交给子服了（子服盯着的时候代理不用再轮询）。 */
         boolean watching;
+        /**
+         * 子服已经在盯了，代理还要不要<b>同时</b>自己轮询一遍。
+         *
+         * <p>默认开：子服那条路万一没走通（桥接版本不认识、消息丢了、子服没装），
+         * 移动取消就会<b>静默失效</b> —— 多问几次坐标很便宜，失效很难查，所以双保险。
+         */
+        boolean pollToo;
         ScheduledTask task;
 
         Countdown(final TpaRequest request, final UUID moverId, final String moverName,
@@ -93,6 +100,37 @@ public final class Teleporter {
 
     public boolean isBusy(final UUID uuid) {
         return active.containsKey(uuid);
+    }
+
+    /**
+     * 撤回请求时顺手把「已经在倒计时」的那一段也掐掉。
+     *
+     * <p>请求一旦被接受就从账本里摘掉了，所以 {@code /tpacancel} 光翻账本是找不到的 ——
+     * 不处理的话玩家撤回成功了，三秒后照样被传走（实测过：取消完照样传送）。
+     *
+     * @param uuid 敲命令的人（可能是被传送的那个，也可能是发起请求的那个）
+     * @return 真的掐掉了一段倒计时吗
+     */
+    public boolean abortCountdown(final UUID uuid) {
+        Countdown countdown = active.get(uuid);
+        if (countdown == null) {
+            for (final Countdown other : active.values()) {
+                if (other.destId.equals(uuid) || other.request.requesterId().equals(uuid)) {
+                    countdown = other;
+                    break;
+                }
+            }
+        }
+        if (countdown == null) {
+            return false;
+        }
+        synchronized (countdown) {
+            if (countdown.done) {
+                return false;
+            }
+            finishEarly(countdown, "cancelled-self", "cancelled-other");
+        }
+        return true;
     }
 
     /** 玩家掉线：把他正在进行的倒计时取消掉，落点也一并丢掉。 */
@@ -152,7 +190,17 @@ public final class Teleporter {
                 destId, dest.get().getUsername(), startServer.toLowerCase(Locale.ROOT),
                 delayMillis, checkMovement);
         countdown.watching = watching;
+        countdown.pollToo = wantCheck && config.movementPollAlso();
         active.put(moverId, countdown);
+        // 排查用：这一行能直接看出移动检测到底走的是哪条路（子服盯 / 代理轮询 / 压根没开）
+        plugin.logger().info("[vtpa] 移动检测：" + (!wantCheck ? "跳过（开了 bypass 或总开关关了）"
+                : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
+                + (countdown.pollToo ? "（同时代理也轮询，双保险）" : "")));
+
+        // 先把「基准坐标」抢到手 —— 这样轮询第一跳就能比，不用白等一轮
+        if (countdown.pollToo) {
+            pollPosition(countdown, mover.get());
+        }
 
         // 倒计时的粒子环：跟着被传送的那个人转，时长按倒计时秒数算（多给半秒缓冲）
         if (delayMillis > 0L) {
@@ -210,7 +258,7 @@ public final class Teleporter {
                 }
             }
 
-            if (countdown.checkMovement && !countdown.checking) {
+            if (countdown.pollToo && !countdown.checking) {
                 pollPosition(countdown, mover);
             }
 

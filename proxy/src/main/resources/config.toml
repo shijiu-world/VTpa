@@ -107,6 +107,10 @@ max-per-player = 4
 #   backend-detection  让子服盯（默认，推荐）—— 子服监听 PlayerMoveEvent，
 #                      每动一下立刻知道，实时又准，跟 CMI 一个路子。
 #                      ⚠️ 需要子服桥接 ≥ 1.1.0，更老的会自动退回下面的轮询。
+#   backend-and-poll    子服已经在盯了，代理要不要「同时」再轮询一遍（默认 true）。
+#                       双保险：子服那条路万一没走通（消息丢了、子服没装、版本不认），
+#                       移动取消会静默失效 —— 玩家动了照样传走，还特别难查。
+#                       多问几次坐标很便宜，所以默认两条一起上。想省这点开销就改 false。
 #   tolerance          离「倒计时开始那一刻站的点」偏出多少方块算「动了」
 #                      ★ 默认 0.0 = 动一下就取消，跟线上 CMI（Tpa.Move: false）一个体感。
 #                        （CMI 的真实判据其实是「前一帧和这一帧的方块格不同了」，
@@ -123,6 +127,7 @@ max-per-player = 4
 [movement]
 enabled = true
 backend-detection = true
+backend-and-poll = true
 tolerance = 0.0
 ignore-y = false
 poll-interval-millis = 250

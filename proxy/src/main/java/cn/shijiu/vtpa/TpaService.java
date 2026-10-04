@@ -382,6 +382,11 @@ public final class TpaService {
     /** 发起者撤回自己发出的请求。 */
     public void cancel(final Player viewer, final String nameArg) {
         final Configuration config = config();
+        // 请求被接受后就进倒计时了（账本里已经没有它）—— 这时候撤回要连倒计时一起掐掉，
+        // 不然玩家看到「已取消」，三秒后照样被传走。
+        if (plugin.teleporter().abortCountdown(viewer.getUniqueId())) {
+            return;
+        }
         final List<TpaRequest> outgoing = store().outgoingFrom(viewer.getUniqueId());
         final TpaRequest request = pick(viewer, nameArg, outgoing, "cancelled-none");
         if (request == null) {

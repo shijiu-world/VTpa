@@ -67,6 +67,8 @@ public final class Watcher implements Listener {
         }
         watching.put(uuid, new Watch(player.getLocation(),
                 Math.max(0D, tolerance), (flags & Wire.WATCH_IGNORE_Y) != 0));
+        Bukkit.getLogger().info("[VTpaBridge] 开始盯 " + player.getName() + " 的移动（容差 "
+                + tolerance + " 格，忽略上下：" + ((flags & Wire.WATCH_IGNORE_Y) != 0) + "）");
     }
 
     public void unwatch(final UUID uuid) {
@@ -110,6 +112,7 @@ public final class Watcher implements Listener {
         }
         // 一次倒计时只报一次，报完就解除
         watching.remove(uuid);
+        Bukkit.getLogger().info("[VTpaBridge] " + event.getPlayer().getName() + " 动了，上报代理取消倒计时");
         try {
             onMove.moved(uuid, locOf(to));
         } catch (final Exception e) {

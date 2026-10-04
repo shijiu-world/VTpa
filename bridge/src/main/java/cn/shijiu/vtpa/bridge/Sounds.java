@@ -10,6 +10,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -32,6 +33,10 @@ public final class Sounds {
 
     /** 认不出来的名字只警告一次，免得每秒刷屏。 */
     private static final Map<String, Boolean> WARNED = new ConcurrentHashMap<>();
+    /** 名字 → 解析结果（省得每播一次就遍历一遍注册表）。 */
+    private static final Map<String, Sound> CACHE = new ConcurrentHashMap<>();
+    /** 解析失败的名字也记一下，别每次都白遍历。 */
+    private static final Set<String> MISSED = ConcurrentHashMap.newKeySet();
 
     private Sounds() {
     }
@@ -73,17 +78,35 @@ public final class Sounds {
     /** 认不出来就返回 null（调用方会退回用字符串播）。 */
     static Sound resolve(final String rawName) {
         final String name = rawName.trim();
-        // 1) 现代注册表：block_anvil_land / block.anvil.land / minecraft:block.anvil.land
-        final Sound byRegistry = fromRegistry(name);
-        if (byRegistry != null) {
-            return byRegistry;
+        final String key = name.toLowerCase(Locale.ROOT);
+        final Sound cached = CACHE.get(key);
+        if (cached != null) {
+            return cached;
         }
-        // 2) 老枚举名：BLOCK_ANVIL_LAND
-        try {
-            return Sound.valueOf(name.toUpperCase(Locale.ROOT).replace('.', '_'));
-        } catch (final Exception ignored) {
+        if (MISSED.contains(key)) {
             return null;
         }
+        // 1) 现代注册表：block_anvil_land / block.anvil.land / minecraft:block.anvil.land
+        Sound hit = fromRegistry(name);
+        // 2) CMI 那种连一起的老写法：blockrespawnanchorcharge
+        //    （去掉所有分隔符再比：block.respawn_anchor.charge → blockrespawnanchorcharge）
+        if (hit == null) {
+            hit = fuzzy(name);
+        }
+        // 3) 老枚举名：BLOCK_ANVIL_LAND
+        if (hit == null) {
+            try {
+                hit = Sound.valueOf(name.toUpperCase(Locale.ROOT).replace('.', '_'));
+            } catch (final Exception ignored) {
+                hit = null;
+            }
+        }
+        if (hit == null) {
+            MISSED.add(key);
+        } else {
+            CACHE.put(key, hit);
+        }
+        return hit;
     }
 
     private static Sound fromRegistry(final String name) {
@@ -98,6 +121,44 @@ public final class Sounds {
             // 老版本 Bukkit 没有 Registry.SOUNDS —— 走下面的回退就行
             return null;
         }
+    }
+
+    /**
+     * 「把分隔符全去掉再比」的模糊匹配。
+     *
+     * <p>线上 CMI 里存的是 Bukkit 1.8 时代的老枚举名，还常常把下划线省掉，
+     * 比如 {@code blockrespawnanchorcharge} —— 现代注册表里叫
+     * {@code block.respawn_anchor.charge}，直接查是查不到的（这正是之前音效全哑的原因）。
+     */
+    private static Sound fuzzy(final String name) {
+        final String flat = flatten(name);
+        if (flat.isEmpty()) {
+            return null;
+        }
+        try {
+            for (final Sound sound : Registry.SOUNDS) {
+                if (flatten(sound.getKey().getKey()).equals(flat)) {
+                    return sound;
+                }
+            }
+        } catch (final Throwable ignored) {
+            // 没有 Registry.SOUNDS（老版本）—— 退回去遍历老枚举
+        }
+        try {
+            for (final Sound sound : Sound.values()) {
+                if (flatten(sound.name()).equals(flat)) {
+                    return sound;
+                }
+            }
+        } catch (final Throwable ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    /** 只留小写字母和数字：block.respawn_anchor.charge → blockrespawnanchorcharge */
+    static String flatten(final String text) {
+        return text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     /** 给字符串版 playSound 用的 key：保证是 {@code minecraft:xxx} 这种能查到的形式。 */
