@@ -27,15 +27,9 @@ list = []
 #   vtpa.all（/tpaall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
 # ⚠️ 移动取消【不】看权限：倒计时期间谁动了都取消，OP / 管理员也不例外，
 #    没有任何节点能绕过。想整服关掉只能改下面的 movement.enabled = false。
-#
-# server-bypass  特权节点 vtpa.server.bypass（不受下面 [servers] 名单限制）生不生效。
-#   默认 false = 名单对所有人一视同仁。⚠️ 设成 true 的话要小心：LuckPerms 给管理组
-#   发了 vtpa.* 或 * 通配符，这个节点会被判定为「有」，名单对管理员就形同虚设 ——
-#   表现就是「名单里明明拉黑了，管理员照样能传」。真要特权就单独发那个节点。
 # ------------------------------------------------------------
 [permissions]
 allow-by-default = true
-server-bypass = false
 
 # ------------------------------------------------------------
 # 基本规则
@@ -57,9 +51,6 @@ allow-cross-server = true
 allow-same-server = true
 notify-on-expire = true
 notify-on-disconnect = true
-# 落点锁在「对方按下接受」那一刻的坐标（他之后走动不影响落点）。
-#   关掉的话，落点是倒计时结束时他站的地方 —— 他一边走一边等，你就追着他跑。
-lock-destination = true
 
 # ------------------------------------------------------------
 # 同意之后的倒计时显示
@@ -70,9 +61,9 @@ lock-destination = true
 [countdown]
 enabled = true
 mode = "title"
-title = "&a#seconds#"
-subtitle = "&7正在传送，请不要移动"
-actionbar = "&b#seconds# &7秒后传送到 &e#player# &7那里，请不要移动"
+title = "&6传送中"
+subtitle = "&7等待 &c#seconds# &7秒"
+actionbar = "&c#seconds# &7秒后传送到 &6#player# &7，请不要移动"
 fade-in-ticks = 2
 stay-ticks = 20
 fade-out-ticks = 4
@@ -178,8 +169,8 @@ fail = "entity_villager_no:2:1"
 #   #accept# / #deny#        = 接受 / 拒绝按钮（具体长啥样在 [buttons] 里配）
 # ------------------------------------------------------------
 [request]
-tpa = "&e%player% &7请求传送到你这里! #accept# #deny#"
-here = "&e%player% &7请求你传送到他那里! #accept# #deny#"
+tpa = "&6%player% &e请求传送到你这里! #accept# #deny#"
+here = "&6%player% &e请求你传送到他那里! #accept# #deny#"
 
 # ------------------------------------------------------------
 # 按钮长什么样
@@ -215,7 +206,7 @@ cancel-command = "/tpacancel %player%"
 prefix = ""
 no-permission = "&c你没有权限这么做"
 players-only = "&c这条命令只有玩家能用"
-unknown-subcommand = "&c没有 &7#sub# &c这个子命令，敲 &f#label# &c看列表"
+unknown-subcommand = "&c不存在 &7#sub# &c这个子命令，输入 &f#label# &c查看命令列表"
 usage-tpa = "&7用法：&f#label# <玩家>"
 usage-tpaccept = "&7用法：&f#label# [玩家]"
 usage-tpadeny = "&7用法：&f#label# [玩家]"
@@ -224,52 +215,53 @@ usage-tpaall = "&7用法：&f#label#"
 usage-tpaworld = "&7用法：&f#label#"
 usage-tpaserver = "&7用法：&f#label#"
 usage-tpatoggle = "&7用法：&f#label# [on|off]"
-player-not-found = "&c找不到在线玩家 &7#target#&c"
-ambiguous-target = "&7#target# &c有多个人名匹配，多打几个字"
-target-connecting = "&7#target# &c还在登录中，等他进服了再试"
+player-not-found = "&c找不到在线玩家 &6#target#&c"
+ambiguous-target = "&6#target# &e有多个人名匹配，多打几个字"
+target-connecting = "&6#target# &e还在登录中，请稍后重试"
 self-request = "&c不能向自己发送传送请求"
-cooldown = "&c慢一点，还要 &7#seconds# &c秒"
-server-denied-self = "&c你所在的服务器（&7#server#&c）不能使用传送请求"
-server-denied-target = "&7#target# &c所在的服务器不能使用传送请求"
+cooldown = "&e慢一点，还要 &6#seconds# &c秒"
+server-denied-self = "&e你所在的服务器 &6#server# &e不能使用传送请求"
+server-denied-target = "&6#target# &e所在的服务器不能使用传送请求"
 cross-server-disabled = "&c没有开启跨服传送请求"
 same-server-disabled = "&c没有开启同服传送请求"
 request-sent = "&e请求已发送给 &6#target# #cancel#"
 request-sent-all = "&a已向 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
 request-sent-world = "&a已向当前世界的 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
 request-sent-server = "&a已向本服的 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
+
 # /tpaworld 专用：问不到自己在哪个世界（子服没装桥接 / 桥接超时）
-world-unknown = "&c拿不到你所在的世界，子服装 VTpaBridge 了吗？"
+world-unknown = "&c拿不到你所在的世界，子服装 VTpaBridge 了吗？请向腐竹反馈"
 already-pending = "&e你已经在请求 &6#target# &e接受你的传送请求"
-reverse-pending = "&7#target# &c已经给你发过一个请求了，先处理那一个吧"
-too-many-outgoing = "&c你挂着的请求太多了（最多 #max# 个），先处理掉几个"
-target-disabled = "&7#target# &c关掉了传送请求"
-target-busy = "&7#target# &c正在传送倒计时中，等一下"
+reverse-pending = "&6#target# &e已经给你发过请求了"
+too-many-outgoing = "&e你挂着的请求太多了（最多 #max# 个），先处理掉几个"
+target-disabled = "&6#target# &e关闭了传送请求"
+target-busy = "&6#target# &e正在传送倒计时中，稍后重试"
 self-busy = "&c你正在传送倒计时中，先等这趟传送完"
 no-incoming = "&c你没有待处理的传送请求"
 pick-one = "&c你有多个待处理请求，指定一个：&f#list#"
 # 下面这些 *-self 是「做事的那个人」看到的，*-other 是「另一方」看到的
-accepted-self = "&a已接受 &7#player# &a的请求，&7#seconds# &a秒后开始传送"
+accepted-self = "&e已接受 &6#player# &e的传送请求"
 accepted-other = "&6#player# &e接受了请求"
-denied-self = "&a已拒绝 &7#player# &c的请求"
-denied-other = "&7#target# &c拒绝了你的传送请求"
+denied-self = "&e已拒绝 &6#player# &e的请求"
+denied-other = "&6#target# &e拒绝了你的传送请求"
 cancelled-self = "&e传送请求已取消"
 cancelled-other = "&6#player# &e取消了发给你的传送请求"
-cancelled-none = "&c你没有待处理的发出请求"
-expired-self = "&7#player# &c发给你的请求超时作废了"
-expired-other = "&c你发给 &7#target# &c的请求超时作废了"
-offline-abort = "&c对方已经下线，传送请求作废"
+cancelled-none = "&e你没有待处理的发出请求"
+expired-self = "&6#player# &e发给你的请求已超时"
+expired-other = "&e你发给 &6#target# &e的请求已超时"
+offline-abort = "&e对方已经下线，传送请求作废"
 countdown-moved = "&e由于您的移动，命令已取消"
-countdown-moved-other = "&7#player# &c在倒计时中移动了，传送取消。"
-countdown-switch = "&c你在传送倒计时中切换了服务器，传送取消"
-teleport-done = "&a传送完成"
+countdown-moved-other = "&6#player# &e在倒计时中移动了，传送取消"
+countdown-switch = ""  # &c你在传送倒计时中切换了服务器，传送取消
+teleport-done = ""     # &a传送完成
 teleport-failed = "&c传送失败：&7#reason#"
 bridge-missing = "&c&7#server# &c这个服没有装 VTpaBridge，没法传送到具体位置"
 bridge-missing-cross = "&c&7#server# &c这个服没有装 VTpaBridge，只能把你送到那个服的出生点"
-toggle-off = "&a已关闭接收别人的传送请求"
-toggle-on = "&a已恢复接收传送请求"
+toggle-off = "&e已关闭接收别人的传送请求"
+toggle-on = "&e已恢复接收传送请求"
 reloaded = "&a配置已重新加载"
 reload-failed = "&c配置加载失败，用的还是旧配置。原因：#reason#"
-switching = "&7正在把你送到 &e#server#&7…"
+switching = ""    # &7正在把你送到 &e#server#&7…
 
 # ------------------------------------------------------------
 # 与子服配套组件（VTpaBridge）的通信
@@ -283,7 +275,7 @@ switching = "&7正在把你送到 &e#server#&7…"
 # ------------------------------------------------------------
 [bridge]
 channel = "vtpa:main"
-missing = "switch"
+missing = "deny"
 timeout-millis = 1200
 ping-interval-seconds = 30
 
@@ -341,7 +333,6 @@ auto-reload = false
 auto-reload-interval-seconds = 3
 log-to-console = true
 save-toggles = true
-# debug = true 才打印排查用的细节日志（走的是哪条移动检测、落点锁在哪、
-#   子服名单判定、子服上报的移动…）。默认关 —— 平时控制台干干净净，
-#   出问题了开一下、复现一次、再关掉。改完 /vtpa reload 就生效，不用重启。
+
+# 输出传送日志
 debug = false
