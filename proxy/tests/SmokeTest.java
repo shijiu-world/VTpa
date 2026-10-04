@@ -80,6 +80,8 @@ public class SmokeTest {
                 defaults.message("self-request").equals(defaults.rawMessage("self-request")));
         check("子服端移动检测默认开", defaults.movementBackend());
         check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
+        check("子服名单默认对所有人生效（vtpa.server.bypass 默认不查）",
+                !defaults.serverBypassEnabled());
         check("移动取消不看权限：配置里没有 permissions.move-bypass 了",
                 !map.containsKey("permissions.move-bypass"));
         check("移动取消不看权限：vtpa.move.bypass 节点已删除（谁都绕不过，含 OP）",

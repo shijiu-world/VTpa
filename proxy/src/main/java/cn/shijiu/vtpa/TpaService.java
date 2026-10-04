@@ -108,15 +108,30 @@ public final class TpaService {
         }
 
         // 子服名单（发起者这边 / 目标那边，两边都要过）
-        if (!Permissions.has(requester, Permissions.SERVER_BYPASS, false)) {
+        final boolean bypassServer = config.serverBypassEnabled()
+                && Permissions.has(requester, Permissions.SERVER_BYPASS, false);
+        if (!bypassServer) {
             final String selfServer = Backend.serverName(requester);
             final String targetServer = Backend.serverName(target);
-            if (!config.filter().allows(selfServer)) {
+            final boolean selfOk = config.filter().allows(selfServer);
+            final boolean targetOk = config.filter().allows(targetServer);
+            // 名单是空的时候（= 全参与）没什么可看的，别在 /tpaall 里刷一屏
+            if (config.logToConsole() && !config.filter().servers().isEmpty()) {
+                plugin.logger().info("[vtpa] 子服名单检查：" + requester.getUsername() + " @"
+                        + (selfServer == null ? "?" : selfServer) + (selfOk ? " ✅" : " ❌")
+                        + " → " + target.getUsername() + " @"
+                        + (targetServer == null ? "?" : targetServer) + (targetOk ? " ✅" : " ❌"));
+            }
+            if (!selfOk) {
                 return "server-denied-self:" + (selfServer == null ? "?" : selfServer);
             }
-            if (!config.filter().allows(targetServer)) {
+            if (!targetOk) {
                 return "server-denied-target";
             }
+        } else if (config.logToConsole()) {
+            plugin.logger().info("[vtpa] 子服名单检查：跳过 —— " + requester.getUsername()
+                    + " 有 vtpa.server.bypass（检查 /lp user " + requester.getUsername()
+                    + " permission check vtpa.server.bypass）");
         }
 
         // 跨服 / 同服开关
@@ -413,7 +428,8 @@ public final class TpaService {
             return;
         }
         // 接受之前再查一次子服名单 —— 请求挂着的三分钟里，任意一方都可能换到名单外的服
-        if (!Permissions.has(viewer, Permissions.SERVER_BYPASS, false)) {
+        if (!(config.serverBypassEnabled()
+                && Permissions.has(viewer, Permissions.SERVER_BYPASS, false))) {
             final String selfServer = Backend.serverName(viewer);
             final String otherServer = Backend.serverName(requester.get());
             if (!config.filter().allows(selfServer)) {

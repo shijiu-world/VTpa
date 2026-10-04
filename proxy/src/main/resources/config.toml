@@ -27,9 +27,15 @@ list = []
 #   vtpa.all（/tpaall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
 # ⚠️ 移动取消【不】看权限：倒计时期间谁动了都取消，OP / 管理员也不例外，
 #    没有任何节点能绕过。想整服关掉只能改下面的 movement.enabled = false。
+#
+# server-bypass  特权节点 vtpa.server.bypass（不受下面 [servers] 名单限制）生不生效。
+#   默认 false = 名单对所有人一视同仁。⚠️ 设成 true 的话要小心：LuckPerms 给管理组
+#   发了 vtpa.* 或 * 通配符，这个节点会被判定为「有」，名单对管理员就形同虚设 ——
+#   表现就是「名单里明明拉黑了，管理员照样能传」。真要特权就单独发那个节点。
 # ------------------------------------------------------------
 [permissions]
 allow-by-default = true
+server-bypass = false
 
 # ------------------------------------------------------------
 # 基本规则

@@ -70,6 +70,7 @@ public final class Configuration {
     // ---------------- 服务器名单 / 权限 ----------------
     private final ServerFilter filter;
     private final boolean allowByDefault;
+    private final boolean serverBypassEnabled;
     // ---------------- 基本规则 ----------------
     private final long requestTimeoutSeconds;
     private final long teleportDelaySeconds;
@@ -142,7 +143,8 @@ public final class Configuration {
                 TomlLite.list(m, "servers.list", Collections.emptyList()));
 
         this.allowByDefault = TomlLite.bool(m, "permissions.allow-by-default", true);
-        // 默认 false：谁动都取消，连有通配符的管理员也不例外（想要特权就得显式开）
+        // 默认 false：子服名单对所有人一视同仁，OP / 有 vtpa.*、* 通配符的也不例外
+        this.serverBypassEnabled = TomlLite.bool(m, "permissions.server-bypass", false);
 
         this.requestTimeoutSeconds = Math.max(1L, TomlLite.integer(m, "general.request-timeout-seconds", 180L));
         this.teleportDelaySeconds = Math.max(0L, TomlLite.integer(m, "general.teleport-delay-seconds", 3L));
@@ -345,6 +347,18 @@ public final class Configuration {
 
     public boolean allowByDefault() {
         return allowByDefault;
+    }
+
+    /**
+     * 特权节点 {@code vtpa.server.bypass}（不受子服黑白名单限制）要不要生效。
+     *
+     * <p>默认 false = 名单对所有人一视同仁。因为 LuckPerms 给管理组发的
+     * {@code vtpa.*} / {@code *} 会把这个节点判定为「有」，默认生效的话
+     * 名单对管理员就形同虚设 —— 而名单的用途恰恰是「隔离某些服」。
+     * 真要特权就改成 true，然后<b>单独</b>发那个节点，别用通配符。
+     */
+    public boolean serverBypassEnabled() {
+        return serverBypassEnabled;
     }
 
     public long requestTimeoutSeconds() {

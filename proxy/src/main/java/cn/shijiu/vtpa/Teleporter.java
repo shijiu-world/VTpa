@@ -243,7 +243,8 @@ public final class Teleporter {
                 return;
             }
             if (!config.filter().allows(nowServer)
-                    && !Permissions.has(mover, Permissions.SERVER_BYPASS, false)) {
+                    && !(config.serverBypassEnabled()
+                            && Permissions.has(mover, Permissions.SERVER_BYPASS, false))) {
                 finishEarly(countdown, "server-denied-self", null, "server", nowServer);
                 return;
             }
@@ -390,7 +391,8 @@ public final class Teleporter {
             return;
         }
         if (!config.filter().allows(destServer)
-                && !Permissions.has(mover, Permissions.SERVER_BYPASS, false)) {
+                && !(config.serverBypassEnabled()
+                        && Permissions.has(mover, Permissions.SERVER_BYPASS, false))) {
             notify(countdown.moverId, "server-denied-target", "target", countdown.destName);
             return;
         }
