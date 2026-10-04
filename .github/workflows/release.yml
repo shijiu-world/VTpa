@@ -1,0 +1,68 @@
+name: 发布 Release
+
+# 打 tag 就构建并把两个 jar 挂到 Release 上：
+#   git tag v1.1.0 && git push origin v1.1.0
+# 手动触发（Actions 页面 Run workflow）只构建、不发 Release。
+#
+# 产物两个，缺一个都不能用：
+#   VTpa-*.jar        Velocity 代理端
+#   VTpaBridge-*.jar  子服配套（不装只能把人切到目标服出生点）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 两端都 --release 17；JDK 21 才读得了 bridge 用的 paper-api（class 65）
+      - name: 准备 JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      # build.sh 里做的同一件事：Wire / FxSpec 两个类在两个 jar 里各存一份，
+      # CI 里也必须先同步，否则改了协议/粒子语法只改到一边，两边解析会错位。
+      - name: 同步 Wire / FxSpec 到 bridge 模块
+        run: |
+          for f in Wire FxSpec; do
+            sed 's/^package cn\.shijiu\.vtpa;/package cn.shijiu.vtpa.bridge;/' \
+              "proxy/src/main/java/cn/shijiu/vtpa/$f.java" \
+              > "bridge/src/main/java/cn/shijiu/vtpa/bridge/$f.java"
+          done
+          git --no-pager diff --stat || true
+
+      - name: 构建
+        run: mvn -B clean package
+
+      - name: 收集产物
+        run: |
+          mkdir -p dist
+          cp proxy/target/VTpa-*.jar dist/
+          cp bridge/target/VTpaBridge-*.jar dist/
+          ls -l dist
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: VTpa
+          path: dist/*.jar
+
+      - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: dist/*.jar
+          generate_release_notes: true
