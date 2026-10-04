@@ -66,6 +66,15 @@ public final class Teleporter {
         volatile Wire.Loc origin;
         /** 最近一次问到的坐标 —— 出发地特效要用（省得再问一次）。 */
         volatile Wire.Loc lastLoc;
+        /**
+         * <b>锁定的落点</b>：对方按下「接受」那一刻他站在哪，就传去哪。
+         *
+         * <p>倒计时这几秒里对方还能继续走 —— 不锁的话落点会跟着他漂，
+         * 传过去发现身边没人（甚至掉进他刚挖的坑里）。
+         */
+        volatile Wire.Loc destLoc;
+        /** 锁定落点时对方所在的服。他要是中途换服了，这个坐标就作废（属于旧服）。 */
+        volatile String destLocServer;
         volatile boolean noBridge;
         volatile boolean checking;
         volatile boolean done;
@@ -204,6 +213,12 @@ public final class Teleporter {
             pollPosition(countdown, mover.get());
         }
 
+        // 落点：就锁在「对方按下接受」这一刻 —— 之后他再怎么走都不影响落点。
+        // （桥接没回 / 延迟为 0 还没等到回包时，proceed 会退回现问一次。）
+        if (config.lockDestination()) {
+            lockDestination(countdown, dest.get());
+        }
+
         // 倒计时的粒子环：跟着被传送的那个人转，时长按倒计时秒数算（多给半秒缓冲）
         if (delayMillis > 0L) {
             plugin.backend().effectFollow(mover.get(), config.particleCountdown(),
@@ -218,6 +233,32 @@ public final class Teleporter {
                 .repeat(interval, TimeUnit.MILLISECONDS)
                 .schedule();
         // 延迟为 0 时也要走一整轮（要问坐标），所以不在这里直接 finish
+    }
+
+    /**
+     * 把落点锁死在这一刻：问一次对方在哪，记下来。
+     *
+     * <p>异步的（要往子服跑一趟），但倒计时有 3 秒，够用。回来时人已经传走了就丢掉，
+     * 对方中途换了服也让这个坐标作废 —— 那时 {@code proceed} 会重新问一次。
+     */
+    private void lockDestination(final Countdown countdown, final Player dest) {
+        final String server = Backend.serverName(dest);
+        plugin.backend().queryLocation(dest, result -> {
+            if (countdown.done) {
+                return;
+            }
+            if (result.isEmpty()) {
+                return;
+            }
+            countdown.destLoc = result.get();
+            countdown.destLocServer = server;
+            if (plugin.configuration().logToConsole()) {
+                plugin.logger().info("[vtpa] 落点已锁定：" + countdown.destName + " @"
+                        + (server == null ? "?" : server) + " " + result.get().world()
+                        + " " + String.format(Locale.ROOT, "%.2f %.2f %.2f",
+                                result.get().x(), result.get().y(), result.get().z()));
+            }
+        });
     }
 
     // ------------------------------------------------------------------
@@ -424,6 +465,12 @@ public final class Teleporter {
         final String moverServer = Backend.serverName(mover);
         final boolean sameServer = destServer.equalsIgnoreCase(moverServer);
 
+        // 落点锁过了（对方按下「接受」那一刻站的地方）就直接用，不用再问一次
+        final Wire.Loc locked = lockedDestination(countdown, destServer);
+        if (locked != null) {
+            deliver(countdown, mover, destServer, sameServer, locked);
+            return;
+        }
         plugin.backend().queryLocation(dest, result -> {
             if (result.isEmpty()) {
                 // 拿不到坐标
@@ -435,22 +482,44 @@ public final class Teleporter {
                 }
                 return;
             }
-            if (sameServer) {
-                if (plugin.backend().teleport(mover, result.get())) {
-                    // 同服：人已经落在坐标上了，直接在落点撒一把
-                    plugin.backend().effectStatic(mover, result.get(),
-                            config.particleArrive(), config.arriveTicks());
-                    plugin.backend().sound(mover, config.sound("arrive"));
-                    notify(countdown.moverId, "teleport-done");
-                    log(countdown, result.get());
-                } else {
-                    plugin.backend().sound(mover, config.sound("fail"));
-                    notify(countdown.moverId, "teleport-failed", "reason", "消息没发出去");
-                }
-                return;
-            }
-            switchServer(mover, destServer, result.get(), countdown);
+            deliver(countdown, mover, destServer, sameServer, result.get());
         });
+    }
+
+    /**
+     * 锁好的落点还能不能用。
+     *
+     * <p>唯一的作废条件是<b>对方中途换了服</b> —— 那坐标属于旧世界，用它会把人传到
+     * 另一个服的同名坐标上。还站在原来的服就没问题：他走动没关系，落点就是要锁死的。
+     */
+    private Wire.Loc lockedDestination(final Countdown countdown, final String destServer) {
+        final Wire.Loc loc = countdown.destLoc;
+        if (loc == null || countdown.destLocServer == null
+                || !countdown.destLocServer.equalsIgnoreCase(destServer)) {
+            return null;
+        }
+        return loc;
+    }
+
+    /** 坐标到手之后真正把人送过去（同服直接传，跨服先切服再落点）。 */
+    private void deliver(final Countdown countdown, final Player mover, final String destServer,
+                         final boolean sameServer, final Wire.Loc loc) {
+        final Configuration config = plugin.configuration();
+        if (sameServer) {
+            if (plugin.backend().teleport(mover, loc)) {
+                // 同服：人已经落在坐标上了，直接在落点撒一把
+                plugin.backend().effectStatic(mover, loc,
+                        config.particleArrive(), config.arriveTicks());
+                plugin.backend().sound(mover, config.sound("arrive"));
+                notify(countdown.moverId, "teleport-done");
+                log(countdown, loc);
+            } else {
+                plugin.backend().sound(mover, config.sound("fail"));
+                notify(countdown.moverId, "teleport-failed", "reason", "消息没发出去");
+            }
+            return;
+        }
+        switchServer(mover, destServer, loc, countdown);
     }
 
     /** 跨服：先切服，落点记下来，等 {@code ServerPostConnectEvent} 到了再让子服挪人。 */

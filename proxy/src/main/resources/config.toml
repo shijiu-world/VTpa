@@ -57,6 +57,9 @@ allow-cross-server = true
 allow-same-server = true
 notify-on-expire = true
 notify-on-disconnect = true
+# 落点锁在「对方按下接受」那一刻的坐标（他之后走动不影响落点）。
+#   关掉的话，落点是倒计时结束时他站的地方 —— 他一边走一边等，你就追着他跑。
+lock-destination = true
 
 # ------------------------------------------------------------
 # 同意之后的倒计时显示

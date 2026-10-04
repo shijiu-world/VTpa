@@ -77,6 +77,7 @@ public final class Configuration {
     private final long cooldownSeconds;
     private final int maxOutgoingRequests;
     private final boolean allowCrossServer;
+    private final boolean lockDestination;
     private final boolean allowSameServer;
     private final boolean notifyOnExpire;
     private final boolean notifyOnDisconnect;
@@ -151,6 +152,7 @@ public final class Configuration {
         this.cooldownSeconds = Math.max(0L, TomlLite.integer(m, "general.cooldown-seconds", 5L));
         this.maxOutgoingRequests = (int) Math.max(1L, TomlLite.integer(m, "general.max-outgoing-requests", 3L));
         this.allowCrossServer = TomlLite.bool(m, "general.allow-cross-server", true);
+        this.lockDestination = TomlLite.bool(m, "general.lock-destination", true);
         this.allowSameServer = TomlLite.bool(m, "general.allow-same-server", true);
         this.notifyOnExpire = TomlLite.bool(m, "general.notify-on-expire", true);
         this.notifyOnDisconnect = TomlLite.bool(m, "general.notify-on-disconnect", true);
@@ -383,6 +385,16 @@ public final class Configuration {
 
     public boolean allowSameServer() {
         return allowSameServer;
+    }
+
+    /**
+     * 落点锁不锁在「对方按下接受」那一刻。
+     *
+     * <p>锁着（默认）的含义：同意之后对方还能自由走动，但你会传到他<b>同意时</b>站的
+     * 那个点 —— 不锁的话落点跟着他漂，三秒里他能走出好几十格。
+     */
+    public boolean lockDestination() {
+        return lockDestination;
     }
 
     public boolean notifyOnExpire() {
