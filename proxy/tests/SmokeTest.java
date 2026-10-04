@@ -71,6 +71,8 @@ public class SmokeTest {
                 defaults.message("self-request").equals(defaults.rawMessage("self-request")));
         check("子服端移动检测默认开", defaults.movementBackend());
         check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
+        check("vtpa.move.bypass 默认不生效（谁动都取消，通配符也别想绕过）",
+                !defaults.moveBypassEnabled());
         check("默认竖直方向也算动（跳一下就取消，跟 CMI 一致）", !defaults.movementIgnoreY());
         check("默认容差 0 —— 动一下就取消", defaults.movementTolerance() == 0D);
         check("声音默认开", defaults.soundsEnabled());

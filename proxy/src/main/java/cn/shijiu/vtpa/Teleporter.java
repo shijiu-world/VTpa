@@ -172,8 +172,11 @@ public final class Teleporter {
             notify(moverId, "self-busy");
             return;
         }
+        // ⚠️ 默认压根不看 vtpa.move.bypass —— 否则 LuckPerms 给管理组发的 vtpa.* / *
+        //    会把它放通，表现就是「管理员动了照样传」，看着像插件坏了
         final boolean wantCheck = config.movementEnabled()
-                && !Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false);
+                && !(config.moveBypassEnabled()
+                        && Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false));
         final long delayMillis = Math.max(0L, config.teleportDelaySeconds()) * 1000L;
 
         // 移动检测优先交给子服（实时、准）；子服桥接太老才退回代理端轮询坐标
@@ -197,7 +200,8 @@ public final class Teleporter {
         //    表现就是「别人动一下就取消，管理员动了照样传」，很像是坏了其实是权限放通了。
         plugin.logger().info("[vtpa] 移动检测："
                 + (!config.movementEnabled() ? "关（movement.enabled = false）"
-                : Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false)
+                : config.moveBypassEnabled()
+                        && Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false)
                         ? "跳过 —— 这个号有 vtpa.move.bypass（检查 /lp user "
                                 + mover.get().getUsername() + " permission check vtpa.move.bypass）"
                         : (watching ? "子服实时盯" : "子服没接手 → 代理轮询")
