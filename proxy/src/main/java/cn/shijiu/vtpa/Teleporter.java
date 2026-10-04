@@ -69,6 +69,8 @@ public final class Teleporter {
         volatile boolean noBridge;
         volatile boolean checking;
         volatile boolean done;
+        /** 移动检测是不是交给子服了（子服盯着的时候代理不用再轮询）。 */
+        boolean watching;
         ScheduledTask task;
 
         Countdown(final TpaRequest request, final UUID moverId, final String moverName,
@@ -132,14 +134,24 @@ public final class Teleporter {
             notify(moverId, "self-busy");
             return;
         }
-        final boolean checkMovement = config.movementEnabled()
-                && !Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false)
-                && plugin.backend().isReady(startServer);
+        final boolean wantCheck = config.movementEnabled()
+                && !Permissions.has(mover.get(), Permissions.MOVE_BYPASS, false);
         final long delayMillis = Math.max(0L, config.teleportDelaySeconds()) * 1000L;
+
+        // 移动检测优先交给子服（实时、准）；子服桥接太老才退回代理端轮询坐标
+        // ⚠️ 这里不再用 isReady() 当门闸 —— 没握过手的服也可能有桥接，
+        //    一票否决会让「移动取消」在某些服上静默失效
+        boolean watching = false;
+        if (wantCheck && config.movementBackend() && delayMillis > 0L) {
+            watching = plugin.backend().watch(mover.get(), config.movementTolerance(),
+                    config.movementIgnoreY());
+        }
+        final boolean checkMovement = wantCheck && !watching;
 
         final Countdown countdown = new Countdown(request, moverId, mover.get().getUsername(),
                 destId, dest.get().getUsername(), startServer.toLowerCase(Locale.ROOT),
                 delayMillis, checkMovement);
+        countdown.watching = watching;
         active.put(moverId, countdown);
 
         // 倒计时的粒子环：跟着被传送的那个人转，时长按倒计时秒数算（多给半秒缓冲）
@@ -147,6 +159,8 @@ public final class Teleporter {
             plugin.backend().effectFollow(mover.get(), config.particleCountdown(),
                     (int) (delayMillis / 50L) + 10);
         }
+        // 倒计时开始那一下的音效（CMI 的 CommandWarmup）
+        plugin.backend().sound(mover.get(), config.sound("countdown"));
 
         final long interval = Math.max(50L, config.pollIntervalMillis());
         countdown.task = plugin.proxy().getScheduler()
@@ -191,6 +205,8 @@ public final class Teleporter {
                 if (secondsLeft > 0 && secondsLeft != countdown.lastShown) {
                     countdown.lastShown = (int) secondsLeft;
                     display(mover, countdown, secondsLeft);
+                    // 每过一秒滴一下（CMI 的 CommandWarmupRunning）
+                    plugin.backend().sound(mover, config.sound("countdown-tick"));
                 }
             }
 
@@ -238,12 +254,35 @@ public final class Teleporter {
         if (config.cancelOnWorldChange() && !from.world().equals(to.world())) {
             return true;
         }
-        return from.distance(to) > config.movementTolerance();
+        final double moved = config.movementIgnoreY() ? from.flatDistance(to) : from.distance(to);
+        return moved > config.movementTolerance();
     }
 
     // ------------------------------------------------------------------
     // 收尾
     // ------------------------------------------------------------------
+
+    /**
+     * 子服报告「这个人动了」。
+     *
+     * <p>⚠️ 这是从插件消息线程进来的（Netty），所以要跟 tick 一样拿 countdown 的锁。
+     */
+    public void onMoved(final UUID uuid, final Wire.Loc loc) {
+        final Countdown countdown = active.get(uuid);
+        if (countdown == null) {
+            return;
+        }
+        synchronized (countdown) {
+            if (countdown.done) {
+                return;
+            }
+            if (plugin.configuration().logToConsole()) {
+                plugin.logger().info("[vtpa] 子服报告 " + countdown.moverName + " 移动到了 " + loc
+                        + "，倒计时作废。");
+            }
+            finishEarly(countdown, "countdown-moved", "countdown-moved-other");
+        }
+    }
 
     /** 倒计时没走完就被打断。otherKey 为 null 时不通知另一方。 */
     private void finishEarly(final Countdown countdown, final String selfKey, final String otherKey,
@@ -256,7 +295,9 @@ public final class Teleporter {
         clearDisplay(countdown.moverId);
         // 倒计时环收掉；配了 cancel 特效的话再补一下（被打断的提示感）
         plugin.proxy().getPlayer(countdown.moverId).ifPresent(mover -> {
+            plugin.backend().unwatch(mover);
             plugin.backend().effectStop(mover);
+            plugin.backend().sound(mover, plugin.configuration().sound("cancel"));
             plugin.backend().effectFollow(mover, plugin.configuration().particleCancel(),
                     plugin.configuration().cancelTicks());
         });
@@ -281,6 +322,7 @@ public final class Teleporter {
         }
         active.remove(countdown.moverId);
         clearDisplay(countdown.moverId);
+        plugin.proxy().getPlayer(countdown.moverId).ifPresent(plugin.backend()::unwatch);
 
         final Optional<Player> moverOpt = plugin.proxy().getPlayer(countdown.moverId);
         final Optional<Player> destOpt = plugin.proxy().getPlayer(countdown.destId);
@@ -319,7 +361,9 @@ public final class Teleporter {
                          final Player dest, final String destServer) {
         final Configuration config = plugin.configuration();
         // 倒计时那圈先收掉，再在脚下撒一把「出发」的
+        plugin.backend().unwatch(mover);
         plugin.backend().effectStop(mover);
+        plugin.backend().sound(mover, config.sound("depart"));
         if (countdown.lastLoc != null) {
             plugin.backend().effectStatic(mover, countdown.lastLoc,
                     config.particleDepart(), config.departTicks());
@@ -334,6 +378,7 @@ public final class Teleporter {
                 if (!sameServer && "switch".equals(config.bridgeMissing())) {
                     switchServer(mover, destServer, null, countdown);
                 } else {
+                    plugin.backend().sound(mover, config.sound("fail"));
                     notify(countdown.moverId, "bridge-missing", "server", destServer);
                 }
                 return;
@@ -343,9 +388,11 @@ public final class Teleporter {
                     // 同服：人已经落在坐标上了，直接在落点撒一把
                     plugin.backend().effectStatic(mover, result.get(),
                             config.particleArrive(), config.arriveTicks());
+                    plugin.backend().sound(mover, config.sound("arrive"));
                     notify(countdown.moverId, "teleport-done");
                     log(countdown, result.get());
                 } else {
+                    plugin.backend().sound(mover, config.sound("fail"));
                     notify(countdown.moverId, "teleport-failed", "reason", "消息没发出去");
                 }
                 return;
@@ -375,12 +422,14 @@ public final class Teleporter {
                     plugin.backend().effectStatic(mover, loc,
                             plugin.configuration().particleArrive(),
                             plugin.configuration().arriveTicks());
+                    plugin.backend().sound(mover, plugin.configuration().sound("arrive"));
                     notify(countdown.moverId, "teleport-done");
                     log(countdown, loc);
                 }
                 return;
             }
             pendingTeleports.remove(mover.getUniqueId());
+            plugin.backend().sound(mover, plugin.configuration().sound("fail"));
             notify(countdown.moverId, "teleport-failed", "reason", String.valueOf(result.getStatus()));
         });
     }
@@ -405,6 +454,7 @@ public final class Teleporter {
                     plugin.backend().effectStatic(player, pending.loc,
                             plugin.configuration().particleArrive(),
                             plugin.configuration().arriveTicks());
+                    plugin.backend().sound(player, plugin.configuration().sound("arrive"));
                     plugin.send(player, plugin.configuration().message("teleport-done"));
                     if (plugin.configuration().logToConsole()) {
                         plugin.logger().info("[vtpa] " + player.getUsername() + " 跨服传送到 "

@@ -1,3 +1,5 @@
+import cn.shijiu.vtpa.Backend;
+import cn.shijiu.vtpa.Colors;
 import cn.shijiu.vtpa.Configuration;
 import cn.shijiu.vtpa.FxSpec;
 import cn.shijiu.vtpa.RequestStore;
@@ -36,14 +38,19 @@ public class SmokeTest {
         check("传送延迟默认 3 秒", TomlLite.integer(map, "general.teleport-delay-seconds", 0L) == 3L);
         check("冷却默认 5 秒", TomlLite.integer(map, "general.cooldown-seconds", 0L) == 5L);
         check("最多挂 3 个外出请求", TomlLite.integer(map, "general.max-outgoing-requests", 0L) == 3L);
-        check("移动容差 0.6 格", TomlLite.decimal(map, "movement.tolerance", 0D) == 0.6D);
+        check("移动容差 0 格（动一下就取消，跟 CMI 一样）",
+                TomlLite.decimal(map, "movement.tolerance", -1D) == 0D);
         check("倒计时模式默认 title", "title".equals(TomlLite.string(map, "countdown.mode", "")));
         check("请求文本里有接受占位符", ((String) map.get("request.tpa")).contains("#accept#"));
         check("请求文本里有拒绝占位符", ((String) map.get("request.here")).contains("#deny#"));
         check("请求文本里用 %player% 指代发起者", ((String) map.get("request.tpa")).contains("%player%"));
         check("接受按钮的点击命令带 %player%",
                 ((String) map.get("buttons.accept-command")).contains("%player%"));
-        check("悬停提示里写了换行符", ((String) map.get("buttons.accept-hover")).contains("\n"));
+        check("按钮悬停提示可配", map.containsKey("buttons.accept-hover"));
+        check("撤回按钮有默认文字", ((String) map.get("buttons.cancel-text")).contains("撤回"));
+        check("撤回命令带 %player%", ((String) map.get("buttons.cancel-command")).contains("%player%"));
+        check("Cancel 按钮指向 tpacancel",
+                ((String) map.get("buttons.cancel-command")).contains("/tpacancel"));
         check("顶层快捷命令默认接管 /tpa", map.containsKey("shortcuts.tpa"));
         check("顶层快捷命令默认接管 /tpaccept", map.containsKey("shortcuts.tpaccept"));
         check("顶层快捷命令默认接管 /tpaall", map.containsKey("shortcuts.tpaall"));
@@ -58,7 +65,35 @@ public class SmokeTest {
         check("走 /tpa 进来提示 /tpa", defaults.label("tpa", "tpa").equals("/tpa"));
         check("走 /vt tpa 进来提示 /vt tpa", defaults.label("vt", "tpa").equals("/vt tpa"));
         check("拼不出 alias 时退回 /vt tpa", defaults.label(null, "tpa").equals("/vt tpa"));
-        check("提示语自动拼 prefix", defaults.message("self-request").startsWith("&8[&b传送&8]&r"));
+        check("默认配置里 prefix 是空的（不想要就自己填）", "".equals(map.get("messages.prefix")));
+        check("prefix 为空时提示语就是原文",
+                defaults.message("self-request").equals(defaults.rawMessage("self-request")));
+        check("子服端移动检测默认开", defaults.movementBackend());
+        check("默认竖直方向也算动（跳一下就取消，跟 CMI 一致）", !defaults.movementIgnoreY());
+        check("默认容差 0 —— 动一下就取消", defaults.movementTolerance() == 0D);
+        check("声音默认开", defaults.soundsEnabled());
+        check("请求音效用的是 CMI 那个", "block_anvil_land:0.5:2".equals(defaults.sound("request")));
+        check("倒计时音效用的是 CMI 那个",
+                "blockrespawnanchorcharge:1:1".equals(defaults.sound("countdown")));
+        check("出发音效 entity_enderman_teleport:2:1",
+                "entity_enderman_teleport:2:1".equals(defaults.sound("depart")));
+        check("落地音效 entity_enderman_teleport:0.2:1",
+                "entity_enderman_teleport:0.2:1".equals(defaults.sound("arrive")));
+        check("没配的音效返回 null（= 不播）", defaults.sound("根本没这个") == null);
+        // —— 功能：配置文本为空时整条不发送
+        final Configuration blank = new Probe(TomlLite.parse(
+                "[messages]\nprefix = \"&8[&b传送&8]&r \"\nself-request = \"\"\n"
+                        + "cooldown = \"&c\"\n")).unwrap();
+        check("文本为空 → 整条不发送（连 prefix 都不带）", blank.message("self-request").isEmpty());
+        check("只剩颜色码也算空 → 不发", blank.message("cooldown").isEmpty());
+        check("空文本不会误伤正常文本", !blank.message("no-permission").isEmpty());
+        check("Colors.isBlank 认得空串", Colors.isBlank(""));
+        check("Colors.isBlank 认得纯颜色码", Colors.isBlank("&c&l"));
+        check("Colors.isBlank 不误判正常文本", !Colors.isBlank("&c慢一点"));
+        check("Colors.plain 能剥掉 hex 颜色", Colors.plain("&#FF0000红").equals("红"));
+        check("声音关掉后一律返回 null", new Probe(TomlLite.parse(
+                "[sounds]\nenabled = false\nrequest = \"block_anvil_land:0.5:2\"\n"))
+                .unwrap().sound("request") == null);
         check("提示语缺配置时有兜底", defaults.message("根本没这个键").contains("messages.根本没这个键"));
         check("占位符替换生效", defaults.message("request-sent", "target", "小明", "seconds", "180")
                 .contains("小明"));
@@ -130,8 +165,12 @@ public class SmokeTest {
         check("坏包不会炸（返回 null）", Wire.read(new byte[]{99}) == null);
         check("空包不会炸", Wire.read(null) == null);
         check("原地不动不算移动", loc.distance(new Wire.Loc("world", 1.5D, 64D, -3.25D, 0F, 0F)) == 0D);
-        check("走 1 格超过 0.6 的容差",
-                loc.distance(new Wire.Loc("world", 2.5D, 64D, -3.25D, 0F, 0F)) > 0.6D);
+        check("走 1 格超过 0 的容差（动一下就取消）",
+                loc.distance(new Wire.Loc("world", 2.5D, 64D, -3.25D, 0F, 0F)) > 0D);
+        check("原地跳 10 格：3D 距离算动了",
+                loc.distance(new Wire.Loc("world", 1.5D, 74D, -3.25D, 0F, 0F)) > 0D);
+        check("原地跳 10 格：水平距离仍是 0",
+                loc.flatDistance(new Wire.Loc("world", 1.5D, 74D, -3.25D, 0F, 0F)) == 0D);
 
         // ---- 颜色 ----
         final Component colored = cn.shijiu.vtpa.Colors.colorize("&c红&#FF0000色");
@@ -291,6 +330,35 @@ public class SmokeTest {
         check("OP_PING 仍然能解", Wire.read(Wire.ping()).op() == Wire.OP_PING);
         check("坏包返回 null 而不是抛异常", Wire.read(new byte[0]) == null
                 && Wire.read(null) == null);
+
+        // —— 1.1.0 新增的四个 opcode（移动监视 + 声音）
+        final Wire.Packet watch = Wire.read(Wire.watch(uuid, 0.6D, Wire.WATCH_IGNORE_Y));
+        check("WATCH 解出 opcode", watch.op() == Wire.OP_WATCH);
+        check("WATCH 带上玩家 UUID", uuid.equals(watch.uuid()));
+        check("WATCH 容差原样传到子服", watch.amount() == 0.6D);
+        check("WATCH 的 ignoreY 标记不丢", (watch.sub() & Wire.WATCH_IGNORE_Y) != 0);
+
+        final Wire.Packet unwatch = Wire.read(Wire.unwatch(uuid));
+        check("UNWATCH 解出 opcode", unwatch.op() == Wire.OP_UNWATCH);
+        check("UNWATCH 带上玩家 UUID", uuid.equals(unwatch.uuid()));
+
+        final Wire.Packet moved = Wire.read(Wire.moved(uuid, at));
+        check("MOVED 解出 opcode", moved.op() == Wire.OP_MOVED);
+        check("MOVED 带上当前坐标", moved.loc() != null && moved.loc().x() == 1.5D);
+
+        final Wire.Packet sound = Wire.read(Wire.sound(uuid, "block_anvil_land:0.5:2"));
+        check("SOUND 解出 opcode", sound.op() == Wire.OP_SOUND);
+        check("SOUND 的声音串不丢", "block_anvil_land:0.5:2".equals(sound.text()));
+        check("SOUND 带上玩家 UUID", uuid.equals(sound.uuid()));
+
+        // —— 版本协商：老桥接不能假装支持新协议
+        check("1.1.0 支持子服端移动检测", Backend.atLeast("1.1.0", 1, 1, 0));
+        check("1.0.0 不支持（要退回轮询）", !Backend.atLeast("1.0.0", 1, 1, 0));
+        check("1.2.0 也算支持", Backend.atLeast("1.2.0", 1, 1, 0));
+        check("2.0.0 也算支持", Backend.atLeast("2.0.0", 1, 1, 0));
+        check("版本号认不出来时保守当不支持", !Backend.atLeast("", 1, 1, 0)
+                && !Backend.atLeast(null, 1, 1, 0));
+        check("带后缀的版本号能解（1.1.0-SNAPSHOT）", Backend.atLeast("1.1.0-SNAPSHOT", 1, 1, 0));
     }
 
     private static Map<String, Object> blacklistMap() {

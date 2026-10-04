@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "vtpa",
         name = "VTpa",
-        version = "1.0.0",
+        version = "1.1.0",
         description = "跨服传送请求：/tpa /tpahere /tpaall /tpaccept /tpadeny",
         authors = {"拾玖世界"}
 )
@@ -251,8 +251,23 @@ public final class VTpa {
                 + "，同服请求：" + (config.allowSameServer() ? "开" : "关"));
         logger.info("[vtpa] 倒计时显示：" + (config.countdownEnabled()
                 ? config.countdownMode() : "关")
-                + "，移动取消：" + (config.movementEnabled()
-                ? "开（超过 " + config.movementTolerance() + " 格算动）" : "关"));
+                + "，移动取消：" + (!config.movementEnabled() ? "关"
+                : "开（" + (config.movementTolerance() <= 0D
+                        ? "动一下就取消" : "超过 " + config.movementTolerance() + " 格算动")
+                + "，" + (config.movementBackend() ? "子服实时判定" : "代理轮询")
+                + (config.movementIgnoreY() ? "，只算水平距离" : "，上下也算动") + "）"));
+        if (config.soundsEnabled()) {
+            final List<String> on = new ArrayList<>();
+            for (final String key : new String[]{"request", "countdown", "countdown-tick",
+                    "depart", "arrive", "cancel", "deny", "fail"}) {
+                if (config.sound(key) != null) {
+                    on.add(key);
+                }
+            }
+            logger.info("[vtpa] 声音：" + (on.isEmpty() ? "全关" : String.join("/", on)));
+        } else {
+            logger.info("[vtpa] 声音：关");
+        }
         logger.info("[vtpa] 桥接通道 " + config.bridgeChannel()
                 + "，子服没装桥接时：" + ("switch".equals(config.bridgeMissing())
                 ? "跨服只切服（落出生点）" : "拒绝"));
@@ -313,8 +328,16 @@ public final class VTpa {
     // 给命令 / 服务用的小接口
     // ------------------------------------------------------------------
 
-    /** 发一条带 & 颜色码的文本。 */
+    /**
+     * 发一条带 & 颜色码的文本。
+     *
+     * <p>空串 / 只剩颜色码的<b>不发</b> —— 配置里把某条提示设成 {@code ""} 就是「不想看到它」，
+     * 发出去只会剩一个孤零零的 prefix。
+     */
     public void send(final CommandSource source, final String legacy) {
+        if (Colors.isBlank(legacy)) {
+            return;
+        }
         source.sendMessage(Colors.colorize(legacy));
     }
 

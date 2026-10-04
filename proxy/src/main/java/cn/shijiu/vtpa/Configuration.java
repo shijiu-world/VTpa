@@ -110,6 +110,13 @@ public final class Configuration {
     private final String requestHere;
     private final Button acceptButton;
     private final Button denyButton;
+    private final Button cancelButton;
+    // ---------------- 移动检测 ----------------
+    private final boolean movementBackend;
+    private final boolean movementIgnoreY;
+    // ---------------- 声音 ----------------
+    private final boolean soundsEnabled;
+    private final Map<String, String> sounds;
     // ---------------- 提示语 ----------------
     private final String prefix;
     private final Map<String, String> messages;
@@ -175,7 +182,8 @@ public final class Configuration {
         this.particleProblems = Collections.unmodifiableList(fxProblems);
 
         this.movementEnabled = TomlLite.bool(m, "movement.enabled", true);
-        this.movementTolerance = Math.max(0D, TomlLite.decimal(m, "movement.tolerance", 0.6D));
+        // 默认 0：动一下就取消（跟 CMI 的 Tpa.Move: false 一个体感）
+        this.movementTolerance = Math.max(0D, TomlLite.decimal(m, "movement.tolerance", 0D));
         this.pollIntervalMillis = Math.max(50L, TomlLite.integer(m, "movement.poll-interval-millis", 250L));
         this.cancelOnWorldChange = TomlLite.bool(m, "movement.cancel-on-world-change", true);
 
@@ -189,6 +197,24 @@ public final class Configuration {
                 TomlLite.string(m, "buttons.deny-text", "&c&l[拒绝]"),
                 TomlLite.string(m, "buttons.deny-hover", "&c点击拒绝 %player% 的请求"),
                 TomlLite.string(m, "buttons.deny-command", "/tpadeny %player%"));
+        // 发给发起者的「已发送请求」里那个撤回按钮 —— 点了等于自己敲 /tpacancel
+        this.cancelButton = new Button(
+                TomlLite.string(m, "buttons.cancel-text", "&e&l[撤回]"),
+                TomlLite.string(m, "buttons.cancel-hover", "&e点一下撤回发给 %player% 的请求"),
+                TomlLite.string(m, "buttons.cancel-command", "/tpacancel %player%"));
+
+        this.movementBackend = TomlLite.bool(m, "movement.backend-detection", true);
+        // 默认 false：竖直方向动了也算（跳一下就取消），跟 CMI 一致
+        this.movementIgnoreY = TomlLite.bool(m, "movement.ignore-y", false);
+
+        this.soundsEnabled = TomlLite.bool(m, "sounds.enabled", true);
+        final Map<String, String> sounds = new LinkedHashMap<>();
+        for (final Map.Entry<String, Object> e : m.entrySet()) {
+            if (e.getKey().startsWith("sounds.") && !e.getKey().equals("sounds.enabled")) {
+                sounds.put(e.getKey().substring("sounds.".length()), String.valueOf(e.getValue()));
+            }
+        }
+        this.sounds = Collections.unmodifiableMap(sounds);
 
         this.prefix = TomlLite.string(m, "messages.prefix", "&8[&b传送&8]&r");
         final Map<String, String> messages = new LinkedHashMap<>();
@@ -467,6 +493,44 @@ public final class Configuration {
         return denyButton;
     }
 
+    public Button cancelButton() {
+        return cancelButton;
+    }
+
+    /**
+     * 移动检测交给子服做（子服监听 PlayerMoveEvent，实时、准，跟 CMI 一个路子）。
+     *
+     * <p>只有子服桥接版本太老（不支持这条协议）时才会退回代理端轮询。
+     */
+    public boolean movementBackend() {
+        return movementBackend;
+    }
+
+    /** 只算水平距离：原地跳一下 / 被活塞顶一下不算「移动」。 */
+    public boolean movementIgnoreY() {
+        return movementIgnoreY;
+    }
+
+    public boolean soundsEnabled() {
+        return soundsEnabled;
+    }
+
+    /**
+     * 取一个音效串（CMI 那种 {@code 名字:音量:音调}）。没配 / 配成空串返回 null = 不播。
+     *
+     * <p>可用的 key：{@code request}（对方收到请求时）、{@code countdown}（倒计时开始）、
+     * {@code countdown-tick}（倒计时每过一秒）、{@code depart}（出发）、
+     * {@code arrive}（落地）、{@code cancel}（被打断）、{@code deny}（被拒绝）、
+     * {@code fail}（传送失败）。
+     */
+    public String sound(final String key) {
+        if (!soundsEnabled) {
+            return null;
+        }
+        final String value = sounds.get(key);
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     /**
      * 取一条提示语（已经拼好 prefix）。缺了就返回兜底文本，不返回 null。
      *
@@ -489,7 +553,9 @@ public final class Configuration {
         if (text.contains("#label#")) {
             text = text.replace("#label#", label());
         }
-        return prefix + text;
+        // 配置里这条设成空（或者只剩颜色码）→ 整条都不发，连 prefix 也不带。
+        // 不然会发出一条孤零零的「[传送] 」，玩家看着莫名其妙。
+        return Colors.isBlank(text) ? "" : prefix + text;
     }
 
     /** 提示语里显示成什么命令名 —— 取配置的第一个主命令别名，没配就用 /vtpa。 */

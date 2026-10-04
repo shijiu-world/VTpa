@@ -27,6 +27,8 @@ public final class TpaService {
 
     private static final String TOKEN_ACCEPT = "#accept#";
     private static final String TOKEN_DENY = "#deny#";
+    /** 「已发送请求」里那个撤回按钮 —— 点了等于敲 /tpacancel 对方。 */
+    private static final String TOKEN_CANCEL = "#cancel#";
 
     private final VTpa plugin;
 
@@ -187,10 +189,17 @@ public final class TpaService {
         store().put(request);
         lastRequestAt.put(requester.getUniqueId(), now);
 
-        target.sendMessage(buildRequestMessage(request));
-        plugin.send(requester, config.message("request-sent",
-                "target", target.getUsername(),
-                "seconds", String.valueOf(config.requestTimeoutSeconds())));
+        // 文本配成空就不发这条（声音照播 —— 声音是独立的一档配置）
+        if (!Colors.isBlank(rawRequest(request))) {
+            target.sendMessage(buildRequestMessage(request));
+        }
+        // 对方听到「叮」的一声（CMI 的 TpaRequest）
+        plugin.backend().sound(target, config.sound("request"));
+        final String seconds = String.valueOf(config.requestTimeoutSeconds());
+        final String sentRaw = config.rawMessage("request-sent");
+        if (!Colors.isBlank(sentRaw)) {
+            requester.sendMessage(buildSentMessage(sentRaw, target.getUsername(), seconds));
+        }
         if (config.logToConsole()) {
             plugin.logger().info("[vtpa] " + requester.getUsername() + " -> " + target.getUsername()
                     + " (" + type + ")");
@@ -365,6 +374,8 @@ public final class TpaService {
         final Optional<Player> requester = proxy().getPlayer(request.requesterId());
         if (requester.isPresent()) {
             plugin.send(requester.get(), config.message("denied-other", "target", viewer.getUsername()));
+            // 被拒绝的人听到一声（默认空，想要就自己在 [sounds] 里填）
+            plugin.backend().sound(requester.get(), config.sound("deny"));
         }
     }
 
@@ -435,45 +446,94 @@ public final class TpaService {
     // ------------------------------------------------------------------
 
     /**
-     * 拼出那条发给被请求者的消息：文本里最后那两个 {@code #accept#} / {@code #deny#}
+     * 拼出那条发给<b>被请求者</b>的消息：文本里的 {@code #accept#} / {@code #deny#}
      * 会被换成可点击的组件。
      */
     public Component buildRequestMessage(final TpaRequest request) {
         final Configuration config = config();
         final String raw = request.type() == RequestType.TPA ? config.requestTpa() : config.requestHere();
         final Player requester = proxy().getPlayer(request.requesterId()).orElse(null);
-        final String who = request.requesterName();
         final String fromServer = requester == null ? null : Backend.serverName(requester);
-        final String server = fromServer == null ? "?" : fromServer;
-        final String time = String.valueOf(request.remainingSeconds(System.currentTimeMillis()));
+        return renderButtons(raw, request.requesterName(),
+                fromServer == null ? "?" : fromServer,
+                String.valueOf(request.remainingSeconds(System.currentTimeMillis())));
+    }
 
+    /**
+     * 拼出那条发给<b>发起者</b>的「已发送请求」：文本里的 {@code #cancel#}
+     * 会变成撤回按钮（点了等于自己敲 {@code /tpacancel 对方}）。
+     *
+     * <p>⚠️ 这里的 {@code %player%} 指的是<b>对方</b>（被请求的人）——
+     * 因为撤回命令要指定「撤回发给谁的那个」。
+     */
+    public Component buildSentMessage(final String raw, final String targetName, final String seconds) {
+        final Player target = proxy().getAllPlayers().stream()
+                .filter(p -> p.getUsername().equalsIgnoreCase(targetName))
+                .findFirst().orElse(null);
+        final String server = target == null ? "?" : String.valueOf(Backend.serverName(target));
+        // #target# / #seconds# 是这条消息自己的占位符，先替掉再交给按钮渲染
+        final String prepared = raw == null ? "" : raw
+                .replace("#target#", targetName)
+                .replace("#seconds#", seconds == null ? "" : seconds);
+        return renderButtons(prepared, targetName, server, seconds);
+    }
+
+    /** 这条请求用的原始文本（TPA / TPAHERE 各一句）。 */
+    private String rawRequest(final TpaRequest request) {
+        final Configuration config = config();
+        return request.type() == RequestType.TPA ? config.requestTpa() : config.requestHere();
+    }
+
+    /** 把 {@code #accept#} / {@code #deny#} / {@code #cancel#} 三个占位符换成可点击按钮。 */
+    private Component renderButtons(final String raw, final String who,
+                                    final String server, final String time) {
+        final Configuration config = config();
+        if (raw == null || raw.isEmpty()) {
+            return Component.empty();
+        }
         final TextComponent.Builder out = Component.text();
         int cursor = 0;
         while (cursor < raw.length()) {
             final int atAccept = raw.indexOf(TOKEN_ACCEPT, cursor);
             final int atDeny = raw.indexOf(TOKEN_DENY, cursor);
-            if (atAccept < 0 && atDeny < 0) {
+            final int atCancel = raw.indexOf(TOKEN_CANCEL, cursor);
+            final int at = earliest(atAccept, earliest(atDeny, atCancel));
+            if (at < 0) {
                 break;
             }
-            final boolean acceptButton;
-            final int at;
-            if (atDeny < 0 || (atAccept >= 0 && atAccept < atDeny)) {
-                at = atAccept;
-                acceptButton = true;
+            final String token;
+            final Configuration.Button button;
+            if (at == atAccept) {
+                token = TOKEN_ACCEPT;
+                button = config.acceptButton();
+            } else if (at == atDeny) {
+                token = TOKEN_DENY;
+                button = config.denyButton();
             } else {
-                at = atDeny;
-                acceptButton = false;
+                token = TOKEN_CANCEL;
+                button = config.cancelButton();
             }
             if (at > cursor) {
                 out.append(Colors.colorize(vars(raw.substring(cursor, at), who, server, time)));
             }
-            out.append(button(acceptButton ? config.acceptButton() : config.denyButton(), who, server, time));
-            cursor = at + (acceptButton ? TOKEN_ACCEPT.length() : TOKEN_DENY.length());
+            out.append(button(button, who, server, time));
+            cursor = at + token.length();
         }
         if (cursor < raw.length()) {
             out.append(Colors.colorize(vars(raw.substring(cursor), who, server, time)));
         }
         return out.build();
+    }
+
+    /** 两个下标里取更靠前那个（-1 表示没有）。 */
+    private static int earliest(final int a, final int b) {
+        if (a < 0) {
+            return b;
+        }
+        if (b < 0) {
+            return a;
+        }
+        return Math.min(a, b);
     }
 
     private static String vars(final String text, final String player,
@@ -483,7 +543,7 @@ public final class TpaService {
                 .replace("%server%", server)
                 .replace("#server#", server)
                 .replace("%time%", time)
-                .replace("#time%", time);
+                .replace("#time#", time);
     }
 
     private static Component button(final Configuration.Button button, final String player,

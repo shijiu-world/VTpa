@@ -31,6 +31,14 @@ public final class Wire {
     public static final int OP_TP = 6;
     /** 代理 → 子服：播一段粒子特效（子命令见 {@link #FX_FOLLOW} 等）。 */
     public static final int OP_FX = 7;
+    /** 代理 → 子服：盯住这个人的移动，动了就回 {@link #OP_MOVED}（1.1.0 起）。 */
+    public static final int OP_WATCH = 8;
+    /** 代理 → 子服：不用盯了（倒计时结束 / 被打断）（1.1.0 起）。 */
+    public static final int OP_UNWATCH = 9;
+    /** 子服 → 代理：这个人动了（1.1.0 起）。 */
+    public static final int OP_MOVED = 10;
+    /** 代理 → 子服：给这个玩家播个声音（1.1.0 起）。payload 是 CMI 那种 {@code 名字:音量:音调}。 */
+    public static final int OP_SOUND = 11;
 
     /** 特效子类型：跟着某个玩家走（倒计时期间一直在他身上转）。 */
     public static final int FX_FOLLOW = 1;
@@ -38,6 +46,9 @@ public final class Wire {
     public static final int FX_STATIC = 2;
     /** 特效子类型：把这个人身上正在播的特效全停掉。 */
     public static final int FX_STOP = 3;
+
+    /** {@link #OP_WATCH} 的 flags：只算水平距离（原地跳 / 被顶一下不算动）。 */
+    public static final int WATCH_IGNORE_Y = 1;
 
     private Wire() {
     }
@@ -93,6 +104,13 @@ public final class Wire {
             return Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
 
+        /** 到另一个点的<b>水平</b>直线距离（方块，忽略高度差）。 */
+        public double flatDistance(final Loc other) {
+            final double dx = x - other.x();
+            final double dz = z - other.z();
+            return Math.sqrt(dx * dx + dz * dz);
+        }
+
         @Override
         public String toString() {
             return world + " " + String.format("%.2f %.2f %.2f", x, y, z);
@@ -109,19 +127,27 @@ public final class Wire {
         private final int sub;
         /** {@link #OP_FX} 的播放时长（tick）；{@code FX_STOP} 时无意义。 */
         private final int ticks;
+        /** {@link #OP_WATCH} 的移动容差（方块）。 */
+        private final double amount;
 
         Packet(final int op, final UUID uuid, final Loc loc, final String text) {
-            this(op, uuid, loc, text, 0, 0);
+            this(op, uuid, loc, text, 0, 0, 0D);
         }
 
         Packet(final int op, final UUID uuid, final Loc loc, final String text,
                final int sub, final int ticks) {
+            this(op, uuid, loc, text, sub, ticks, 0D);
+        }
+
+        Packet(final int op, final UUID uuid, final Loc loc, final String text,
+               final int sub, final int ticks, final double amount) {
             this.op = op;
             this.uuid = uuid;
             this.loc = loc;
             this.text = text;
             this.sub = sub;
             this.ticks = ticks;
+            this.amount = amount;
         }
 
         public int op() {
@@ -146,6 +172,10 @@ public final class Wire {
 
         public int ticks() {
             return ticks;
+        }
+
+        public double amount() {
+            return amount;
         }
     }
 
@@ -225,6 +255,48 @@ public final class Wire {
         });
     }
 
+    /**
+     * 开始盯这个人的移动：{@code [op][uuid][tolerance][flags]}。
+     *
+     * <p>子服收到时把玩家<b>当前</b>位置记成基准，之后玩家一动（超过 tolerance）
+     * 就回一个 {@link #OP_MOVED}。这比代理端每隔几百毫秒问一次坐标实时得多，
+     * 也是 CMI 的做法（它就在子服监听 PlayerMoveEvent）。
+     */
+    public static byte[] watch(final UUID uuid, final double tolerance, final int flags) {
+        return build(out -> {
+            out.writeByte(OP_WATCH);
+            out.writeUTF(uuid.toString());
+            out.writeDouble(tolerance);
+            out.writeInt(flags);
+        });
+    }
+
+    /** 别盯了：{@code [op][uuid]}。 */
+    public static byte[] unwatch(final UUID uuid) {
+        return build(out -> {
+            out.writeByte(OP_UNWATCH);
+            out.writeUTF(uuid.toString());
+        });
+    }
+
+    /** 这个人动了：{@code [op][uuid][loc]}。 */
+    public static byte[] moved(final UUID uuid, final Loc loc) {
+        return build(out -> {
+            out.writeByte(OP_MOVED);
+            out.writeUTF(uuid.toString());
+            writeLoc(out, loc);
+        });
+    }
+
+    /** 给这个玩家播个声音：{@code [op][uuid][sound]}。sound 形如 {@code block_anvil_land:0.5:2}。 */
+    public static byte[] sound(final UUID uuid, final String soundSpec) {
+        return build(out -> {
+            out.writeByte(OP_SOUND);
+            out.writeUTF(uuid.toString());
+            out.writeUTF(soundSpec == null ? "" : soundSpec);
+        });
+    }
+
     private static void writeLoc(final DataOutputStream out, final Loc loc) throws IOException {
         out.writeUTF(loc.world());
         out.writeDouble(loc.x());
@@ -275,6 +347,18 @@ public final class Wire {
                     return new Packet(op, UUID.fromString(in.readUTF()), readLoc(in), null);
                 case OP_FX:
                     return readFx(in);
+                case OP_WATCH: {
+                    final UUID uuid = UUID.fromString(in.readUTF());
+                    final double tolerance = in.readDouble();
+                    final int flags = in.readInt();
+                    return new Packet(op, uuid, null, null, flags, 0, tolerance);
+                }
+                case OP_UNWATCH:
+                    return new Packet(op, UUID.fromString(in.readUTF()), null, null);
+                case OP_MOVED:
+                    return new Packet(op, UUID.fromString(in.readUTF()), readLoc(in), null);
+                case OP_SOUND:
+                    return new Packet(op, UUID.fromString(in.readUTF()), null, in.readUTF());
                 default:
                     return null;
             }

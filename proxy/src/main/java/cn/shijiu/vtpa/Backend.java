@@ -41,6 +41,8 @@ public final class Backend {
 
     /** 已知装了桥接的服务器名（小写）。 */
     private final Set<String> ready = ConcurrentHashMap.newKeySet();
+    /** 各子服桥接的版本号（小写服名 → 版本串）。用来判断它支不支持新协议。 */
+    private final Map<String, String> versions = new ConcurrentHashMap<>();
     /** 正在等坐标回包的查询（按玩家 UUID，同一人同时只会有一个）。 */
     private final Map<UUID, Pending> pending = new ConcurrentHashMap<>();
 
@@ -106,8 +108,16 @@ public final class Backend {
         final String from = serverNameOf(event.getSource());
         switch (packet.op()) {
             case Wire.OP_PONG:
-                if (from != null && ready.add(from.toLowerCase(java.util.Locale.ROOT))) {
-                    logger.info("[vtpa] 子服 " + from + " 的桥接组件已就位（" + packet.text() + "）。");
+                if (from != null) {
+                    final String lower = from.toLowerCase(java.util.Locale.ROOT);
+                    final boolean first = ready.add(lower);
+                    final String version = packet.text() == null ? "" : packet.text();
+                    versions.put(lower, version);
+                    if (first) {
+                        logger.info("[vtpa] 子服 " + from + " 的桥接组件已就位（" + version + "）"
+                                + (supports(lower, 1, 1, 0)
+                                ? "，支持子服端移动检测。" : "，版本偏老，移动检测退回代理轮询。"));
+                    }
                 }
                 break;
             case Wire.OP_POS_RES:
@@ -115,6 +125,10 @@ public final class Backend {
                 break;
             case Wire.OP_POS_NONE:
                 complete(packet.uuid(), Optional.empty());
+                break;
+            case Wire.OP_MOVED:
+                // 子服说这个人动了 —— 交给 Teleporter 判断他是不是正在倒计时
+                plugin.teleporter().onMoved(packet.uuid(), packet.loc());
                 break;
             default:
                 break;
@@ -260,6 +274,84 @@ public final class Backend {
             return false;
         }
         return server.sendPluginMessage(channel, Wire.teleport(player.getUniqueId(), loc));
+    }
+
+    // ------------------------------------------------------------------
+    // 移动监视 / 声音（1.1.0 起）
+    // ------------------------------------------------------------------
+
+    /**
+     * 让子服盯住这个人的移动。子服会在他动超过 {@code tolerance} 时回一个 {@code MOVED}。
+     *
+     * <p>子服桥接太老（不支持）就返回 false —— 调用方要退回代理端轮询，别干脆不检测。
+     */
+    public boolean watch(final Player player, final double tolerance, final boolean ignoreY) {
+        final RegisteredServer server = currentServer(player);
+        if (server == null) {
+            return false;
+        }
+        if (!supports(server.getServerInfo().getName(), 1, 1, 0)) {
+            return false;
+        }
+        return server.sendPluginMessage(channel, Wire.watch(player.getUniqueId(), tolerance,
+                ignoreY ? Wire.WATCH_IGNORE_Y : 0));
+    }
+
+    /** 别盯了（倒计时结束 / 被打断 / 换服）。 */
+    public void unwatch(final Player player) {
+        final RegisteredServer server = currentServer(player);
+        if (server != null) {
+            server.sendPluginMessage(channel, Wire.unwatch(player.getUniqueId()));
+        }
+    }
+
+    /**
+     * 给这个玩家播个声音。{@code spec} 为空 / 没配就不发。
+     *
+     * <p>返回 false 只是「没播」（没开声音、这条没配、消息发不出去），
+     * 调用方一律不用管，绝不影响传送流程。
+     */
+    public boolean sound(final Player player, final String spec) {
+        if (player == null || spec == null || spec.isBlank()) {
+            return false;
+        }
+        final RegisteredServer server = currentServer(player);
+        if (server == null) {
+            return false;
+        }
+        return server.sendPluginMessage(channel, Wire.sound(player.getUniqueId(), spec));
+    }
+
+    /** 这个服的桥接版本够不够新（用于「子服能不能干某件事」的判断）。 */
+    public boolean supports(final String serverName, final int major, final int minor, final int patch) {
+        if (serverName == null) {
+            return false;
+        }
+        final String version = versions.get(serverName.toLowerCase(java.util.Locale.ROOT));
+        return atLeast(version, major, minor, patch);
+    }
+
+    /** 比较 {@code 1.10.2} 这种版本串；解析不出来一律当「不够新」（保守）。 */
+    public static boolean atLeast(final String version, final int major, final int minor, final int patch) {
+        if (version == null || version.isBlank()) {
+            return false;
+        }
+        final String[] parts = version.trim().split("[.\\-+]");
+        final int[] got = new int[3];
+        for (int i = 0; i < 3 && i < parts.length; i++) {
+            try {
+                got[i] = Integer.parseInt(parts[i].replaceAll("[^0-9]", ""));
+            } catch (final Exception e) {
+                got[i] = 0;
+            }
+        }
+        final int[] want = {major, minor, patch};
+        for (int i = 0; i < 3; i++) {
+            if (got[i] != want[i]) {
+                return got[i] > want[i];
+            }
+        }
+        return true;
     }
 
     /** 这个人当前所在的服务器；还在登录中（没进任何服）返回 null。 */

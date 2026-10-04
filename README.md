@@ -9,8 +9,11 @@
 
 | jar | 装在哪 | 干什么 |
 | --- | --- | --- |
-| `VTpa-1.0.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
-| `VTpaBridge-1.0.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送 |
+| `VTpa-1.1.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
+| `VTpaBridge-1.1.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
+
+⚠️ 两个 jar **版本要配套**：移动检测是 1.1.0 起才有的协议。子服还停在 1.0.0 时
+不会报错，只是自动退回代理轮询（日志会提示「版本偏老」），但判定会慢半拍。
 
 **代理拿不到坐标，也挪不动人** —— Velocity 只知道「谁在哪个服」。它能做的只有
 把玩家从 A 服切到 B 服（落到 B 服的出生点）。要精确到「传送到张三脚下」，必须有
@@ -34,8 +37,8 @@ PAPI、PAPIProxyBridge 任何东西，也不依赖数据库。
 ./build.sh          # 或：JAVA_HOME=... mvn -B -o package
 
 # 2. 丢 jar
-proxy/target/VTpa-1.0.0.jar          → 代理的 plugins/
-bridge/target/VTpaBridge-1.0.0.jar   → 每个要参与的子服的 plugins/
+proxy/target/VTpa-1.1.0.jar          → 代理的 plugins/
+bridge/target/VTpaBridge-1.1.0.jar   → 每个要参与的子服的 plugins/
 
 # 3. 重启（子服和代理都要重启），会自动生成 plugins/vtpa/config.toml
 # 4. 改配置后 /vtpa reload（需要 vtpa.reload）
@@ -185,13 +188,23 @@ accept-command = "/tpaccept %player%"
 deny-text      = "&c&l[拒绝]"
 deny-hover     = "&c点击拒绝 &e%player% &c的传送请求\n&7也可以自己敲 /tpadeny %player%"
 deny-command   = "/tpadeny %player%"
+cancel-text    = "&e&l[撤回]"
+cancel-hover   = "&e点一下撤回发给 %player% 的请求"
+cancel-command = "/tpacancel %player%"
+
+[messages]
+request-sent = "&e请求已发送给 &6#target# #cancel#"
 ```
 
 - `%player%`（也认 `#player#`）= 发起者名字；`%server%` = 发起者所在服；`%time%` = 剩余秒数
 - `#accept#` / `#deny#` 会变成可点击组件，**位置随便放**，写几个就出现几个
+- `#cancel#` 是发给**发起者**那条「已发送请求」里的撤回按钮 —— 点了等于自己敲
+  `/tpacancel 对方`。⚠️ 那条消息里 `%player%` 指的是**被请求的人**（撤回得说清楚撤回给谁的）
 - `*-command` 里带 `%player%`，所以按钮点的永远是 `/tpaccept 小明` 这种**带名字**的，
   同时有多个请求也绝不会点错
 - `*-hover` 里写 `\n` 换行
+- **任何一条文本配成空串（`""`）就等于「这条别发」**，连 `messages.prefix` 都不会带 ——
+  不会发出一条孤零零的 `[传送] `。只剩颜色码（比如 `&c`）也算空
 
 ### 3. 时效 / 倒计时 / 移动检测
 
@@ -215,13 +228,38 @@ actionbar = "&b#seconds# &7秒后传送到 &e#player# &7那里，请不要移动
 
 [movement]
 enabled               = true
+backend-detection     = true        # 让子服盯（实时、准，跟 CMI 一个路子）
 tolerance             = 0.6        # 位移超过多少格算「动了」
-poll-interval-millis  = 250        # 多久问一次坐标
+ignore-y              = true        # 只算水平距离：原地跳一下不算动
+poll-interval-millis  = 250        # 桥接太老时退回轮询，多久问一次坐标
 cancel-on-world-change = true
 ```
 
-⚠️ 移动检测**要有桥接才准**（代理拿不到坐标）。子服没装桥接时这一项自动失效，
-不会误判 —— 宁可不拦，也不能把站着不动的人判成动了。
+**移动检测放在子服做**（`backend-detection = true`）：子服监听 `PlayerMoveEvent`，
+玩家每动一下立刻就知道；代理端轮询是每 250 毫秒问一次坐标、还得等一次网络往返，慢半拍。
+CMI 也是这么干的。子服桥接版本 < 1.1.0 时会自动退回轮询，日志里会说。
+
+⚠️ 子服没装桥接时这一项自动失效（等于不检测）—— 宁可不拦，也不能把站着不动的人判成动了。
+
+### 3.5 声音（移植自 CMI 的 `Sounds:` 段）
+
+格式跟 CMI 一模一样：`名字:音量:音调`。下面这几个默认值**就是线上 CMI 现在用的**。
+
+```toml
+[sounds]
+enabled        = true
+request        = "block_anvil_land:0.5:2"          # 对方收到请求时（播给被请求的人）
+countdown      = "blockrespawnanchorcharge:1:1"    # 倒计时开始（播给被传送的人）
+countdown-tick = "blockrespawnanchorcharge:1:1"    # 倒计时每过一秒滴一下
+depart         = "entity_enderman_teleport:2:1"    # 出发那一瞬间
+arrive         = "entity_enderman_teleport:0.2:1"  # 落地那一瞬间
+cancel         = ""                                # 倒计时被打断
+deny           = ""                                # 请求被拒绝（播给发起者）
+fail           = "entity_villager_no:2:1"          # 传送失败
+```
+
+写空串就是不播。声音名**运行时解析**（跟粒子名一样），1.20.5 之后改过名的老名字也认；
+认不出来只记一条警告、跳过，**不影响传送**。
 
 ### 4. 粒子特效（移植自 CMI 的 tpaWarmup / TeleportEffects）
 
@@ -306,7 +344,8 @@ tpatoggle = "tpatoggle"
 
 ```bash
 ./build.sh        # 构建两个 jar（离线，依赖都在 ~/.m2）
-./run-tests.sh    # 117 条断言：TOML / 配置 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设
+./run-tests.sh    # 154 条断言：TOML / 配置 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设
+                  #             / 空文本不发送 / 声音 / 版本协商 / 新增的 4 个 opcode
 ```
 
 要求：JDK 17+（用 `--release 17` 编，Velocity 3.4~4.x 都跑得动）、Maven 3.9。

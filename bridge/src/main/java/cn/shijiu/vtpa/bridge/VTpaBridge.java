@@ -45,6 +45,8 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
 
     private final Map<UUID, PendingTp> pending = new ConcurrentHashMap<>();
     private final Particles particles = new Particles(this);
+    /** 倒计时期间的移动监视（代理发 WATCH 来开，这里负责实时判定）。 */
+    private final Watcher watcher = new Watcher((uuid, loc) -> reply(null, Wire.moved(uuid, loc)));
 
     private static final class PendingTp {
         final Wire.Loc loc;
@@ -60,7 +62,9 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
         Bukkit.getMessenger().registerIncomingPluginChannel(this, CHANNEL, this);
         Bukkit.getMessenger().registerOutgoingPluginChannel(this, CHANNEL);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("[VTpaBridge] 已就绪，通道 " + CHANNEL + "（配合代理端 VTpa 使用）。");
+        Bukkit.getPluginManager().registerEvents(watcher, this);
+        getLogger().info("[VTpaBridge] 已就绪，通道 " + CHANNEL
+                + "（配合代理端 VTpa 使用，版本 " + getDescription().getVersion() + "）。");
     }
 
     @Override
@@ -69,6 +73,7 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
         Bukkit.getMessenger().unregisterOutgoingPluginChannel(this, CHANNEL);
         pending.clear();
         particles.stopAll();
+        watcher.stopAll();
     }
 
     // ------------------------------------------------------------------
@@ -97,6 +102,17 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
                 break;
             case Wire.OP_FX:
                 handleEffect(packet);
+                break;
+            case Wire.OP_WATCH:
+                // 记基准位置要在主线程
+                Bukkit.getScheduler().runTask(this, () ->
+                        watcher.watch(packet.uuid(), packet.amount(), packet.sub()));
+                break;
+            case Wire.OP_UNWATCH:
+                watcher.unwatch(packet.uuid());
+                break;
+            case Wire.OP_SOUND:
+                handleSound(packet);
                 break;
             default:
                 break;
@@ -140,6 +156,20 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
             default:
                 break;
         }
+    }
+
+    /** 提示音。播不出来只是没声音，不影响任何流程。 */
+    private void handleSound(final Wire.Packet packet) {
+        final String spec = packet.text();
+        if (spec == null || spec.isBlank()) {
+            return;
+        }
+        Bukkit.getScheduler().runTask(this, () -> {
+            final Player target = Bukkit.getPlayer(packet.uuid());
+            if (target != null) {
+                Sounds.play(this, target, spec);
+            }
+        });
     }
 
     /** 借一个在线玩家的通道把消息发回代理。 */

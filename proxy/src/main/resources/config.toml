@@ -59,7 +59,7 @@ notify-on-disconnect = true
 [countdown]
 enabled = true
 mode = "title"
-title = "&b#seconds#"
+title = "&a#seconds#"
 subtitle = "&7正在传送，请不要移动"
 actionbar = "&b#seconds# &7秒后传送到 &e#player# &7那里，请不要移动"
 fade-in-ticks = 2
@@ -103,17 +103,55 @@ max-per-player = 4
 
 # ------------------------------------------------------------
 # 「倒计时期间玩家移动了就作废」的检测
-#   ⚠️ 这一项要靠子服装了 VTpaBridge 才准 —— 代理本身拿不到坐标。
-#      子服没装桥接时这一项自动失效（等于不检测），不会误判。
-#   tolerance            位移超过多少方块算「动了」（默认 0.6，站桩/微动不算）
-#   poll-interval-millis 多久问一次坐标（默认 250 毫秒）
+#   enabled            总开关。关掉 = 「随便动，照样传送」。
+#   backend-detection  让子服盯（默认，推荐）—— 子服监听 PlayerMoveEvent，
+#                      每动一下立刻知道，实时又准，跟 CMI 一个路子。
+#                      ⚠️ 需要子服桥接 ≥ 1.1.0，更老的会自动退回下面的轮询。
+#   tolerance          离「倒计时开始那一刻站的点」偏出多少方块算「动了」
+#                      ★ 默认 0.0 = 动一下就取消，跟线上 CMI（Tpa.Move: false）一个体感。
+#                        （CMI 的真实判据其实是「前一帧和这一帧的方块格不同了」，
+#                         0.0 比它还干脆：连格子里的微动、被水冲一下都算动。）
+#                        想放宽就调大：0.6 = 走小半格才取消，2 = 走两步才取消。
+#   ignore-y           只算水平距离（原地跳一下、被活塞顶一下就不算动）
+#                      ★ 默认 false = 竖直方向动了也算，跳一下就取消 —— 跟 CMI 一致。
+#   poll-interval-millis 退回代理轮询时多久问一次坐标（默认 250 毫秒）
+#                      轮询慢半拍（还有一次网络往返），只在桥接太老时才走这条路。
 #   cancel-on-world-change 换了世界（比如被别的插件传走）直接作废
+#   ⚠️ 子服没装桥接时这一项自动失效（等于不检测）—— 宁可不拦，也不误判。
+#   ℹ️ 只转视角（光转头、没挪窝）不算动 —— CMI 也是这么判的。
 # ------------------------------------------------------------
 [movement]
 enabled = true
-tolerance = 0.6
+backend-detection = true
+tolerance = 0.0
+ignore-y = false
 poll-interval-millis = 250
 cancel-on-world-change = true
+
+# ------------------------------------------------------------
+# 声音。格式跟 CMI 的 Sounds 段一模一样：名字:音量:音调
+#   写空串（""）就是「这个不播」。可用的名字参考 Bukkit Sound 枚举，
+#   下划线和点都认（block_anvil_land = block.anvil.land）。
+#   下面这几个默认值就是线上 CMI 现在用的那几个。
+#   request        对方收到请求时（播给被请求的人）
+#   countdown      倒计时开始（播给被传送的人）
+#   countdown-tick 倒计时每过一秒滴一下
+#   depart         出发那一瞬间
+#   arrive         落地那一瞬间
+#   cancel         倒计时被打断
+#   deny           请求被拒绝（播给发起者）
+#   fail           传送失败
+# ------------------------------------------------------------
+[sounds]
+enabled = true
+request = "block_anvil_land:0.5:2"
+countdown = "blockrespawnanchorcharge:1:1"
+countdown-tick = "blockrespawnanchorcharge:1:1"
+depart = "entity_enderman_teleport:2:1"
+arrive = "entity_enderman_teleport:0.2:1"
+cancel = ""
+deny = ""
+fail = "entity_villager_no:2:1"
 
 # ------------------------------------------------------------
 # 发给被请求者的那条消息（最后两个 #accept# / #deny# 会变成可点击的按钮）
@@ -131,16 +169,23 @@ here = "&e%player% &7请求你传送到他那里! #accept# #deny#"
 # 按钮长什么样
 #   *-text     按钮上显示的文字
 #   *-hover    鼠标悬停时显示的文字（写 \n 换行）
-#   *-command  点一下会执行什么（%player% 换成发起者的名字，
+#   *-command  点一下会执行什么（%player% 换成对方的名字，
 #              所以带名字的 /tpaccept 能精确对上那一条请求，不怕同时有多个）
+#
+# cancel-* 是发给发起者那条「已发送请求」里的撤回按钮（在 messages.request-sent
+# 里写 #cancel# 就会出现）。注意那条消息里 %player% 指的是「被请求的人」——
+# 因为撤回要说清楚撤回发给谁的那个。
 # ------------------------------------------------------------
 [buttons]
-accept-text = "&a&l[接受]"
-accept-hover = "&a点击接受 &e%player% &a的传送请求\n&7也可以自己敲 /tpaccept %player%"
+accept-text = "&a&l[✔]"
+accept-hover = "&aAccept"
 accept-command = "/tpaccept %player%"
-deny-text = "&c&l[拒绝]"
-deny-hover = "&c点击拒绝 &e%player% &c的传送请求\n&7也可以自己敲 /tpadeny %player%"
+deny-text = "&c&l[X]"
+deny-hover = "&cDeny"
 deny-command = "/tpadeny %player%"
+cancel-text = "&7&l[X]"
+cancel-hover = "&aCancel"
+cancel-command = "/tpacancel %player%"
 
 # ------------------------------------------------------------
 # 各种提示语。占位符会被自动替换，每条前面会自动拼上下面的 prefix
@@ -151,56 +196,56 @@ deny-command = "/tpadeny %player%"
 #   #label#   玩家实际敲的命令（走 /tpa 就是 /tpa，走 /vtpa tpa 就是 /vtpa tpa）
 # ------------------------------------------------------------
 [messages]
-prefix = "&8[&b传送&8]&r"
-no-permission = "&c你没有权限这么做（缺 #permission#）。"
-players-only = "&c这条命令只有玩家能用。"
-unknown-subcommand = "&c没有 &7#sub# &c这个子命令，敲 &f#label# &c看列表。"
+prefix = ""
+no-permission = "&c你没有权限这么做"
+players-only = "&c这条命令只有玩家能用"
+unknown-subcommand = "&c没有 &7#sub# &c这个子命令，敲 &f#label# &c看列表"
 usage-tpa = "&7用法：&f#label# <玩家>"
 usage-tpaccept = "&7用法：&f#label# [玩家]"
 usage-tpadeny = "&7用法：&f#label# [玩家]"
 usage-tpacancel = "&7用法：&f#label# [玩家]"
 usage-tpaall = "&7用法：&f#label#"
 usage-tpatoggle = "&7用法：&f#label# [on|off]"
-player-not-found = "&c找不到在线玩家 &7#target#&c。"
-ambiguous-target = "&7#target# &c有多个人名匹配，多打几个字。"
-target-connecting = "&7#target# &c还在登录中，等他进服了再试。"
-self-request = "&c不能向自己发送传送请求。"
-cooldown = "&c慢一点，还要 &7#seconds# &c秒。"
-server-denied-self = "&c你所在的服务器（&7#server#&c）不能使用传送请求。"
-server-denied-target = "&7#target# &c所在的服务器不能使用传送请求。"
-cross-server-disabled = "&c没有开启跨服传送请求。"
-same-server-disabled = "&c没有开启同服传送请求。"
-request-sent = "&a已向 &7#target# &a发送传送请求，等对方响应（&7#seconds# &a秒内有效）。"
-request-sent-all = "&a已向 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）。"
-already-pending = "&c你已经给 &7#target# &c发过请求了，还剩 &7#seconds# &c秒。等它过期，或者敲 &f/vtpa cancel #target# &c取消。"
-reverse-pending = "&7#target# &c已经给你发过一个请求了，先处理那一个吧。"
-too-many-outgoing = "&c你挂着的请求太多了（最多 #max# 个），先处理掉几个。"
-target-disabled = "&7#target# &c关掉了传送请求。"
-target-busy = "&7#target# &c正在传送倒计时中，等一下。"
-self-busy = "&c你正在传送倒计时中，先等这趟传送完。"
-no-incoming = "&c你没有待处理的传送请求。"
+player-not-found = "&c找不到在线玩家 &7#target#&c"
+ambiguous-target = "&7#target# &c有多个人名匹配，多打几个字"
+target-connecting = "&7#target# &c还在登录中，等他进服了再试"
+self-request = "&c不能向自己发送传送请求"
+cooldown = "&c慢一点，还要 &7#seconds# &c秒"
+server-denied-self = "&c你所在的服务器（&7#server#&c）不能使用传送请求"
+server-denied-target = "&7#target# &c所在的服务器不能使用传送请求"
+cross-server-disabled = "&c没有开启跨服传送请求"
+same-server-disabled = "&c没有开启同服传送请求"
+request-sent = "&e请求已发送给 &6#target# #cancel#"
+request-sent-all = "&a已向 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
+already-pending = "&e你已经在请求 &6#target# &e接受你的传送请求"
+reverse-pending = "&7#target# &c已经给你发过一个请求了，先处理那一个吧"
+too-many-outgoing = "&c你挂着的请求太多了（最多 #max# 个），先处理掉几个"
+target-disabled = "&7#target# &c关掉了传送请求"
+target-busy = "&7#target# &c正在传送倒计时中，等一下"
+self-busy = "&c你正在传送倒计时中，先等这趟传送完"
+no-incoming = "&c你没有待处理的传送请求"
 pick-one = "&c你有多个待处理请求，指定一个：&f#list#"
 # 下面这些 *-self 是「做事的那个人」看到的，*-other 是「另一方」看到的
-accepted-self = "&a已接受 &7#player# &a的请求，&7#seconds# &a秒后开始传送。"
-accepted-other = "&7#player# &a接受了你的请求，&7#seconds# &a秒后传送过去。"
-denied-self = "&a已拒绝 &7#player# &c的请求。"
-denied-other = "&7#target# &c拒绝了你的传送请求。"
-cancelled-self = "&a已取消发给 &7#target# &c的请求。"
-cancelled-other = "&7#player# &c取消了他发给你的请求。"
-cancelled-none = "&c你没有待处理的发出请求。"
-expired-self = "&7#player# &c发给你的请求超时作废了。"
-expired-other = "&c你发给 &7#target# &c的请求超时作废了。"
-offline-abort = "&c对方已经下线，传送请求作废。"
-countdown-moved = "&c你在传送倒计时中移动了，传送取消。"
+accepted-self = "&a已接受 &7#player# &a的请求，&7#seconds# &a秒后开始传送"
+accepted-other = "&6#player# &e接受了请求"
+denied-self = "&a已拒绝 &7#player# &c的请求"
+denied-other = "&7#target# &c拒绝了你的传送请求"
+cancelled-self = "&e传送请求已取消"
+cancelled-other = "&6#player# &e取消了发给你的传送请求"
+cancelled-none = "&c你没有待处理的发出请求"
+expired-self = "&7#player# &c发给你的请求超时作废了"
+expired-other = "&c你发给 &7#target# &c的请求超时作废了"
+offline-abort = "&c对方已经下线，传送请求作废"
+countdown-moved = "&e由于您的移动，命令已取消"
 countdown-moved-other = "&7#player# &c在倒计时中移动了，传送取消。"
-countdown-switch = "&c你在传送倒计时中切换了服务器，传送取消。"
-teleport-done = "&a传送完成。"
+countdown-switch = "&c你在传送倒计时中切换了服务器，传送取消"
+teleport-done = "&a传送完成"
 teleport-failed = "&c传送失败：&7#reason#"
-bridge-missing = "&c&7#server# &c这个服没有装 VTpaBridge，没法传送到具体位置。"
-bridge-missing-cross = "&c&7#server# &c这个服没有装 VTpaBridge，只能把你送到那个服的出生点。"
-toggle-off = "&a已关闭接收别人的传送请求。"
-toggle-on = "&a已恢复接收传送请求。"
-reloaded = "&a配置已重新加载。"
+bridge-missing = "&c&7#server# &c这个服没有装 VTpaBridge，没法传送到具体位置"
+bridge-missing-cross = "&c&7#server# &c这个服没有装 VTpaBridge，只能把你送到那个服的出生点"
+toggle-off = "&a已关闭接收别人的传送请求"
+toggle-on = "&a已恢复接收传送请求"
+reloaded = "&a配置已重新加载"
 reload-failed = "&c配置加载失败，用的还是旧配置。原因：#reason#"
 switching = "&7正在把你送到 &e#server#&7…"
 
