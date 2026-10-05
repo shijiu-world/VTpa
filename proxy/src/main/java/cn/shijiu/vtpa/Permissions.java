@@ -4,6 +4,8 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.permission.Tristate;
 import com.velocitypowered.api.proxy.ConsoleCommandSource;
 
+import java.util.Locale;
+
 /**
  * 权限节点清单 + 判定。
  *
@@ -48,6 +50,20 @@ public final class Permissions {
     public static final String COOLDOWN_BYPASS = "vtpa.cooldown.bypass";
     /** 不受子服黑白名单限制。 */
     public static final String SERVER_BYPASS = "vtpa.server.bypass";
+    /**
+     * 🔴 跨服传送的「落脚许可」前缀 —— 完整节点是 {@code vtpa.to.<子服名>}。
+     *
+     * <p><b>默认一律未定义</b>（Velocity 那边是 Tristate.UNDEFINED），也就是服主不给
+     * 就过不去。谁能进哪个子服，全靠这一个系列的节点串起来控制。
+     */
+    public static final String TRAVEL = "vtpa.to.";
+    /**
+     * 🔴 不受 {@code vtpa.to.<子服名>} 限制 —— 要在 [permissions] 里写 to-bypass = true 才生效。
+     *
+     * <p>默认焊死：给管理组发 {@code vtpa.*} 或 {@code *} 会让这个节点自动成立，
+     * 所以默认不起效（跟 {@link #SERVER_BYPASS} 一个道理），真要特权就单独显式给。
+     */
+    public static final String TRAVEL_BYPASS = "vtpa.to.bypass";
     /** 不受「待处理请求数量上限」限制。 */
     public static final String LIMIT_BYPASS = "vtpa.limit.bypass";
     /** /vtpa reload。 */
@@ -91,5 +107,49 @@ public final class Permissions {
         }
         plugin.send(source, plugin.configuration().message("no-permission", "permission", node));
         return false;
+    }
+
+    // ------------------------------------------------------------------
+    // vtpa.to.<子服名> ——「能不能传送到这个子服」
+    // ------------------------------------------------------------------
+
+    /**
+     * 「传送到某个子服」的权限节点。
+     *
+     * <p>服名统一转小写 —— Velocity 的服名是大小写敏感注册的（{@code survival} 和
+     * {@code Survival} 能是两个不同的服），而 LuckPerms 判权限时把节点当小写处理，
+     * 所以这里不转小写的话，大写服名会拼出一个永远配不上的节点。
+     *
+     * @return {@code vtpa.to.<小写服名>}；服名取不到返回 null（= 没法判定，按放行）
+     */
+    public static String travelNode(final String server) {
+        if (server == null || server.isBlank()) {
+            return null;
+        }
+        return TRAVEL + server.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 这个人能不能落脚（被传送）到 {@code server} 这个子服。
+     *
+     * <p>🔴 <b>没配过就是没有</b>：节点 undefined 一律按拒绝。这是整组 travel 权限的
+     * 设计前提 —— 宁可拦住，也不放人过去。服主想开放就得逐个服显式 grant。
+     *
+     * @param source        要被移动到那个服的人。用发起者 / 目标那个 {@code Player}，
+     *                      别用当前是谁在敲命令（{@code /tpahere} 时动的是对方）
+     * @param server        落点所在的子服；取不到（null / 空）时放行，由别的闸拦
+     * @param bypassEnabled [permissions] to-bypass 的值。关着的时候
+     *                      {@link #TRAVEL_BYPASS} 形同不存在
+     */
+    public static boolean mayTravelTo(final CommandSource source, final String server,
+                                      final boolean bypassEnabled) {
+        final String node = travelNode(server);
+        if (node == null) {
+            return true;
+        }
+        if (bypassEnabled && has(source, TRAVEL_BYPASS, false)) {
+            return true;
+        }
+        return has(source, node, false);
     }
 }

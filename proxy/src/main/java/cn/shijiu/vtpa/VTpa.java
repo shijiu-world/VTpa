@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "vtpa",
         name = "VTpa",
-        version = "1.2.0",
+        version = "1.3.0",
         description = "跨服传送请求：/tpa /tpahere /tpaall /tpaccept /tpadeny",
         authors = {"拾玖世界"}
 )
@@ -268,7 +268,11 @@ public final class VTpa {
         logger.info("[vtpa] 子服名单：" + (filter.isWhitelist() ? "白名单" : "黑名单")
                 + (filter.servers().isEmpty() ? "（空 = 全都参与）" : " " + String.join(", ", filter.servers())));
         logger.info("[vtpa] 跨服请求：" + (config.allowCrossServer() ? "开" : "关")
-                + "，同服请求：" + (config.allowSameServer() ? "开" : "关"));
+                + "，同服请求：" + (config.allowSameServer() ? "开" : "关")
+                + (config.allowCrossServer()
+                        ? "，跨服落脚权限 vtpa.to.<服名>：开（没授权的一律拒绝"
+                                + (config.toBypassEnabled() ? "，vtpa.to.bypass 生效）" : "）")
+                        : "，跨服落脚权限 vtpa.to.<服名>：用不上（跨服关着）"));
         logger.info("[vtpa] 互相请求自动同意：" + (config.reverseAutoAccept()
                 ? "开（两条结果一样就直接进倒计时）" : "关（后发的那条会被挡回去）"));
         logger.info("[vtpa] 倒计时显示：" + (config.countdownEnabled()

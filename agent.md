@@ -9,12 +9,12 @@
 
 - 源码：`D:\Code\mc\plugins\VTpa`（Maven 多模块）
 - 仓库：`git@github.com:shijiu-world/VTpa.git`（**走 SSH**，https 会被本机代理掐断 502）
-- 版本：**1.2.0**（移动检测是 1.1.0 起的协议；1.2.0 加的是「互相请求自动同意」）
+- 版本：**1.3.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限）
 
 | 模块 | 产物 | 装哪 | 依赖 |
 |---|---|---|---|
-| `proxy/` | `proxy/target/VTpa-1.2.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
-| `bridge/` | `bridge/target/VTpaBridge-1.2.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
+| `proxy/` | `proxy/target/VTpa-1.3.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
+| `bridge/` | `bridge/target/VTpaBridge-1.3.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
 
 **为什么必须两个**：代理拿不到坐标也挪不动人，它只知道「谁在哪个服」，能做的只有把人从 A 服切到 B 服
 （落到出生点）。要精确到「传到张三脚下」，必须有子服那一半帮忙。
@@ -48,7 +48,7 @@
 | `Wire.java` | 392 | **协议**（两份拷贝之一）：opcode 常量 + `Loc` + 编解码 | 见下面「协议」 |
 | `FxSpec.java` | 489 | **粒子预设串解析**（两份拷贝之一） | 语法兼容 CMI 的 `ParticleEffects.yml` |
 | `Colors.java` | 63 | 颜色化 + `isBlank()`（**只剩颜色码也算空**） | 空文本整条不发送，靠它 |
-| `Permissions.java` | 95 | 权限闸门 | 🔴 `server.bypass` 默认不再对管理员生效（见铁律） |
+| `Permissions.java` | 95 → 155 | 权限闸门（`has`/`require`）+ `vtpa.to.<服名>` 的拼节点（`travelNode`）与判定（`mayTravelTo`） | 🔴 `server.bypass` 默认不再对管理员生效（见铁律）；🔴 `mayTravelTo` 一律 `allowByDefault=false` —— 这套节点默认未定义 = 拒绝 |
 | `TomlLite.java` | 267 | 自研 TOML 解析 | 与 VWhisper 那份同源但独立 |
 | `command/*.java` | — | 11 个命令类，都实现 `SimpleCommand` | `TpaServerCommand`/`TpaWorldCommand` 是批量请求 |
 
@@ -123,6 +123,34 @@
 
 ---
 
+## 🔴 「传送到某个子服」的权限 `vtpa.to.<子服名>`（1.3.0 起）
+
+判据：**跨服时，被移动的那个人**必须有 `vtpa.to.<落点服>`。节点一律小写，
+**默认全部未定义 = 没授权就拒绝** —— 装好不 grant 的话跨服请求全被拦。
+同服互传不走这套；`/tpaall` 那类群发静默跳过没权限的人。
+
+| 场景 | 谁被移动 | 落点服 | 查谁 |
+|---|---|---|---|
+| `/tpa B`（Mover = requester） | 发起者 | target 所在的服 | **发起者** |
+| `/tpahere A`（Mover = target） | 目标 | requester 所在的服 | **目标** |
+
+三道闸都靠 `Permissions.mayTravelTo(player, server, config.toBypassEnabled())`：
+
+1. `TpaService.rejection()` —— 发请求时。此时 `sameServer` / `destServer` 都已经在作用域里，
+   `destServer` 就是 `RequestType` 决定的落点（见上面的表）。
+2. `TpaService.accept()` —— 点接受时。请求挂着的 180 秒里两人都可能换服，落点服跟着变，必须重查。
+3. `Teleporter.finish()` —— 倒计时走完、**发坐标之前**。最后一秒换服也要算数。
+
+绕过：`vtpa.to.bypass`，但要 `permissions.to-bypass = true`（**默认 false**）才生效。
+跟 `server.bypass` 一个套路 —— 管理组手里的 `vtpa.*` / `*` 会让的节点自动成立，默认是焊死的。
+
+⚠️ **改这三道闸之前先想清楚失效模式**：这一整套「偏向拒绝」（节点未定义 = 拒绝，
+跟 `ServerFilter` 那种「偏向放行」正好相反）。`mayTravelTo` 里只有 **node 为 null**
+（服名取不到，比如人还在登录中）才放行 —— 那是留给 `target-connecting` 那道闸兜底的，
+不要顺手改成默认放行，也不要把 `allowByDefault` 传成 true。
+
+---
+
 ## 铁律（改之前先背）
 
 1. 🔴 **`Wire.java` 和 `FxSpec.java` 只改 `proxy/` 那份**，然后跑 `build.sh` 同步。手改 bridge 那份会被覆盖。
@@ -148,8 +176,9 @@
 | 加协议指令 | `proxy/Wire.java` → 跑 `build.sh` 同步 | `Backend.java` 发、`bridge/VTpaBridge.onPluginMessageReceived()` 收、版本号、`run-tests.sh` 断言 |
 | 加配置项 | `proxy/Configuration.java` + `proxy/src/main/resources/config.toml` | README 表格、`VTpa.reportConfig()`（起服日志会把关键配置全打一遍） |
 | 改边界/提示语 | `TpaService.rejection()` + `config.toml` 的 `[messages]` | README「完整边界情况清单」表格 |
+| 改「能进哪个服」的权限 | `Permissions.travelNode()`（拼节点）+ `mayTravelTo()`（判定） | 🔴 三处调用点：`TpaService.rejection()` / `TpaService.accept()` / `Teleporter.finish()`；`permissions.to-bypass`、`vtpa.to.bypass`、两条 `messages.travel-denied-*` |
 | 改「互相请求」判定 | `TpaRequest.sameOutcomeAs()`（纯数据）+ `TpaService.mutualPending()` | `general.reverse-auto-accept`、两条 `mutual-accept-*` 提示语、README 那张四格表 |
-| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 185 条断言 + 实机 |
+| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 201 条断言 + 实机 |
 | 改粒子语法 | `proxy/FxSpec.java` → `build.sh` 同步 → `bridge/Particles.java` 消费 | 语法兼容 CMI，改了要回头对一遍 |
 | 改移动判定 | `bridge/Watcher.java`（子服）+ `Teleporter.onMoved()`（代理） | `WATCH_IGNORE_Y` flag、`tolerance`、`cancel-on-world-change` |
 
@@ -160,24 +189,25 @@
 ```bash
 cd D:/Code/mc/plugins/VTpa
 ./build.sh        # 同步 Wire/FxSpec → 构建两个 jar（离线，依赖都在 ~/.m2）
-./run-tests.sh    # 185 条断言
+./run-tests.sh    # 201 条断言
 ```
 
 要求 JDK 17+（`--release 17` 编译，Velocity 3.4~4.x / Paper 都跑得动）、Maven 3.9。
 
 `run-tests.sh` 覆盖：TOML 解析 / 配置取值 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设 /
-空文本不发送 / 声音 / **版本协商** / 4 个新增 opcode。
+空文本不发送 / 声音 / **版本协商** / 4 个新增 opcode / **`vtpa.to.<服名>` 拼节点与判定**。
 
-> ⚠️ **当前基线：185 条里 2 条失败（2026-10-05 实测）**，两处都是
+> ⚠️ **当前基线：201 条里 1 条失败（2026-10-06 实测）**，是
 > **随包 `config.toml` 没跟上代码默认值**，不是功能坏了：
 >
 > | 失败断言 | 代码默认 | `config.toml` 现状 |
 > |---|---|---|
-> | 落点默认锁在「接受那一刻」 | `Configuration.java:156` → `true` | `[general]` 里**压根没写** `lock-destination` |
 > | 子服没装桥接默认 switch | `Configuration.java:237` → `"switch"` | `bridge.missing = "deny"` |
 >
-> 测试会额外断言「随包配置里必须显式写出 `general.lock-destination`」，所以补默认值时**不能只靠代码兜底**。
-> 修的时候两个都对齐到代码那侧（`true` / `switch`），别把代码改成迁就配置。
+> （原先「落点锁在接受那一刻」的那条也同源，已经补上 `general.lock-destination = true` 通过了。）
+>
+> 补默认值时**不能只靠代码兜底** —— 测试会额外断言「随包配置里必须显式写出这个键」。
+> 修的时候对齐到代码那侧（`switch`），别把代码改成迁就配置。
 它跑的是 `proxy/tests/SmokeTest.java`（477 行），**bridge 模块无测试**（依赖 paper-api，实机验证）。
 「互相请求」的判定（`sameOutcomeAs`）全是纯数据，在账本那一节里一并测了，不开服也能验。
 

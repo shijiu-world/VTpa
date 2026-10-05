@@ -71,6 +71,7 @@ public final class Configuration {
     private final ServerFilter filter;
     private final boolean allowByDefault;
     private final boolean serverBypassEnabled;
+    private final boolean toBypassEnabled;
     // ---------------- 基本规则 ----------------
     private final long requestTimeoutSeconds;
     private final long teleportDelaySeconds;
@@ -147,6 +148,9 @@ public final class Configuration {
         this.allowByDefault = TomlLite.bool(m, "permissions.allow-by-default", true);
         // 默认 false：子服名单对所有人一视同仁，OP / 有 vtpa.*、* 通配符的也不例外
         this.serverBypassEnabled = TomlLite.bool(m, "permissions.server-bypass", false);
+        // 默认 false：vtpa.to.bypass 不生效 —— 给管理组发 vtpa.* / * 会让它自动成立，
+        // 而这套节点的意义就是「谁能进哪个服」，默认必须谁都不放过
+        this.toBypassEnabled = TomlLite.bool(m, "permissions.to-bypass", false);
 
         this.requestTimeoutSeconds = Math.max(1L, TomlLite.integer(m, "general.request-timeout-seconds", 180L));
         this.teleportDelaySeconds = Math.max(0L, TomlLite.integer(m, "general.teleport-delay-seconds", 3L));
@@ -364,6 +368,18 @@ public final class Configuration {
      */
     public boolean serverBypassEnabled() {
         return serverBypassEnabled;
+    }
+
+    /**
+     * 特权节点 {@code vtpa.to.bypass}（不受 {@code vtpa.to.<子服名>} 限制）要不要生效。
+     *
+     * <p>默认 false = 这套节点对所有人一视同仁。理由跟 {@link #serverBypassEnabled()}
+     * 一模一样：LuckPerms 给管理组发的 {@code vtpa.*} / {@code *} 会把它判成「有」，
+     * 默认生效的话，「谁能进哪个服」的控制在管理员身上就形同虚设。
+     * 真要特权就改成 true，然后<b>单独</b>发那个节点。
+     */
+    public boolean toBypassEnabled() {
+        return toBypassEnabled;
     }
 
     public long requestTimeoutSeconds() {

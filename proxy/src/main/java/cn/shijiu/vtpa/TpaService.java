@@ -191,6 +191,26 @@ public final class TpaService {
 
         // 桥接：落点所在的服必须要有（不然拿不到坐标，也没法落地传送）
         final String destServer = serverNameOf(destId);
+
+        // 🔴 「能不能落脚到那个服」：跨服时，被移动的那个人必须有 vtpa.to.<落点服>
+        //
+        //   查的是【被移动的那个人】，不是【敲命令的那个人】：
+        //     /tpa B     动的是我自己、落点是 B  → 查我的 vtpa.to.<B 所在的服>
+        //     /tpahere A 动的是 A、落点是我      → 查 A 的 vtpa.to.<我所在的服>
+        //   所以「A 从 survival 落到 industry」这件事，不管是谁敲的命令，
+        //   判据始终是 A 有没有 vtpa.to.industry —— 用户请求里的两个方向由此统一。
+        //
+        //   ⚠️ 只管【跨服】：两人本来就在同一个子服的话不查（否则连服内互传都要授权，太重）。
+        //   ⚠️ 节点默认未定义 = 拒绝：不 grant 就是过不去。
+        //   ⚠️ 互相请求（mutual）也照查 —— 它等价于「点了接受」，属于「传送能不能发生」那一类闸。
+        if (!sameServer) {
+            final Player traveller = mover.equals(requesterId) ? requester : target;
+            if (!Permissions.mayTravelTo(traveller, destServer, config.toBypassEnabled())) {
+                return (mover.equals(requesterId) ? "travel-denied-self:" : "travel-denied-target:")
+                        + destServer;
+            }
+        }
+
         if (!plugin.backend().isReady(destServer)) {
             if (!sameServer && "switch".equals(config.bridgeMissing())) {
                 // 跨服 + 配置允许 → 放行，但只能落到那个服的出生点（传送时会提示）
@@ -342,6 +362,13 @@ public final class TpaService {
                 return;
             case "bridge-missing":
                 plugin.send(requester, config.message("bridge-missing", "server", extra));
+                return;
+            case "travel-denied-self":
+            case "travel-denied-target":
+                // #target# 照样是「另一个人」—— travel-denied-target 里指的就是
+                // 真正要被挪过去的那位（/tpahere 时是自己以外的那个目标）
+                plugin.send(requester, config.message(key, "target", targetName,
+                        "label", label, "server", extra));
                 return;
             default:
                 // "max" 给 too-many-outgoing 那条（"最多 #max# 个"）补上上限值，
@@ -564,6 +591,26 @@ public final class TpaService {
         if (plugin.teleporter().isBusy(request.requesterId())) {
             plugin.send(viewer, config.message("target-busy", "target", request.requesterName()));
             return;
+        }
+
+        // 接受之前再查一次 vtpa.to.<落点服> —— 请求挂着的三分钟里两人都可能换过服，
+        // 「落点在哪个服」跟着就变了，发请求那一刻查过的不算数。
+        // ⚠️ 同样只管跨服（见 rejection 里那道的说明）。
+        final Optional<Player> mover = proxy().getPlayer(request.moverId());
+        final Optional<Player> destination = proxy().getPlayer(request.destinationId());
+        if (mover.isPresent() && destination.isPresent()) {
+            final String arrival = Backend.serverName(destination.get());
+            final String departure = Backend.serverName(mover.get());
+            if (arrival != null && (departure == null || !departure.equalsIgnoreCase(arrival))
+                    && !Permissions.mayTravelTo(mover.get(), arrival, config.toBypassEnabled())) {
+                if (request.moverId().equals(viewer.getUniqueId())) {
+                    plugin.send(viewer, config.message("travel-denied-self", "server", arrival));
+                } else {
+                    plugin.send(viewer, config.message("travel-denied-target",
+                            "target", mover.get().getUsername(), "server", arrival));
+                }
+                return;
+            }
         }
 
         store().remove(request);

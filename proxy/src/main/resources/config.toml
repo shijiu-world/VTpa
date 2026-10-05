@@ -27,9 +27,38 @@ list = []
 #   vtpa.all（/tpaall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
 # ⚠️ 移动取消【不】看权限：倒计时期间谁动了都取消，OP / 管理员也不例外，
 #    没有任何节点能绕过。想整服关掉只能改下面的 movement.enabled = false。
+#   to-bypass   vtpa.to.bypass（不受下面的 vtpa.to.<服名> 限制）要不要生效
+#               默认 false = 不生效，那条节点形同不存在
+#               ⚠️ 别轻易开：给管理组发 vtpa.* 或 * 会让它自动成立，
+#                  开了就等于管理员不看下面那套「谁能进哪个服」的规则。
+#                  真要给特权就改成 true，然后【单独】发 vtpa.to.bypass，别用通配符。
+#
+# ------------------------------------------------------------
+# 🔴 「传送到某个子服」的权限：vtpa.to.<子服名>
+#
+#   谁要落脚到 X 服，就必须有 vtpa.to.X（服名一律小写）。只在**跨服**时检查 ——
+#   两个人本来就在同一个子服，互相传一圈不需要任何 vtpa.to.* 节点。
+#
+#     - 阿甲在 survival，阿乙在 industry
+#       /tpa 阿乙（阿甲想去 industry）      → 阿甲要有 vtpa.to.industry
+#       /tpahere 阿甲（阿乙叫阿甲过来）      → 依然是【阿甲】要有 vtpa.to.industry
+#     - 判的是「被移动的那一方」，不是「敲命令的那一方」：
+#       /tpa 动的是自己，/tpahere 动的是对方 —— 上面第二种情况里敲命令的是阿乙，
+#       但真正被挪过去的是阿甲，所以查的是阿甲的权限。
+#     - 节点默认【全部未定义 = 没有得到授权就是拒绝】。装好插件后如果不做任何授权，
+#       所有跨服传送请求都会被拦下来（提示语见 messages.travel-denied-*）。
+#     - 服名写 velocity.toml 的 [servers] 里的名字，大小写不敏感。
+#   ⚠️ 有 vtpa.* 或 * 通配符的人对这套节点一律算「有」（LuckPerms 的通配规则），
+#      想让管理员也受控就别给通配符 —— 或者干脆别开上面的 to-bypass。
+#
+#   例：普通玩家只能进 lobby / survival，VIP 额外能进 industry
+#     /lp group default permission set vtpa.to.lobby true
+#     /lp group default permission set vtpa.to.survival true
+#     /lp group vip      permission set vtpa.to.industry true
 # ------------------------------------------------------------
 [permissions]
 allow-by-default = true
+to-bypass = false
 
 # ------------------------------------------------------------
 # 基本规则
@@ -233,6 +262,11 @@ self-request = "&c不能向自己发送传送请求"
 cooldown = "&e慢一点，还要 &6#seconds# &c秒"
 server-denied-self = "&e你所在的服务器 &6#server# &e不能使用传送请求"
 server-denied-target = "&6#target# &e所在的服务器不能使用传送请求"
+# 「传送到某个子服」的权限 vtpa.to.<服名>（只查跨服，节点的默认值是未定义 = 拒绝）
+#   travel-denied-self    我自己没有传送到 &6#server# 的权限
+#   travel-denied-target  真正要被挪过去的那个人（#target#）没有权限 —— 发给敲命令的人
+travel-denied-self = "&e你没有权限传送到 &6#server# &c服务器"
+travel-denied-target = "&6#target# &e没有权限传送到 &6#server# &e服务器"
 cross-server-disabled = "&c没有开启跨服传送请求"
 same-server-disabled = "&c没有开启同服传送请求"
 request-sent = "&e请求已发送给 &6#target# #cancel#"

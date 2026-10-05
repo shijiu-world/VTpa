@@ -474,6 +474,16 @@ public final class Teleporter {
             notify(countdown.moverId, "server-denied-target", "target", countdown.destName);
             return;
         }
+        // 🔴 最后一道门：vtpa.to.<落点服>。倒计时这几秒里对方可能又换了服，
+        //    落点服跟着变，所以这里拿【此刻】的服再判一次 —— 差一秒、换一个服也要算。
+        //    （只管跨服；已经在同一服的话谈不上「传送到某个子服」。）
+        final String moverServer = Backend.serverName(mover);
+        if (moverServer == null || !moverServer.equalsIgnoreCase(destServer)) {
+            if (!Permissions.mayTravelTo(mover, destServer, config.toBypassEnabled())) {
+                notify(countdown.moverId, "travel-denied-self", "server", destServer);
+                return;
+            }
+        }
         // 出发地特效要 mover 当前的坐标：能顺手拿到就顺手拿，拿不到（没开移动检测）就现问一次
         if (config.particleDepart() != null && countdown.lastLoc == null
                 && plugin.backend().isReady(Backend.serverName(mover))) {

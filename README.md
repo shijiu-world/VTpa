@@ -9,8 +9,8 @@
 
 | jar | 装在哪 | 干什么 |
 | --- | --- | --- |
-| `VTpa-1.2.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
-| `VTpaBridge-1.2.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
+| `VTpa-1.3.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
+| `VTpaBridge-1.3.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
 
 ⚠️ 两个 jar **版本要配套**：移动检测是 1.1.0 起才有的协议。子服还停在 1.0.0 时
 不会报错，只是自动退回代理轮询（日志会提示「版本偏老」），但判定会慢半拍。
@@ -37,8 +37,8 @@ PAPI、PAPIProxyBridge 任何东西，也不依赖数据库。
 ./build.sh          # 或：JAVA_HOME=... mvn -B -o package
 
 # 2. 丢 jar
-proxy/target/VTpa-1.2.0.jar          → 代理的 plugins/
-bridge/target/VTpaBridge-1.2.0.jar   → 每个要参与的子服的 plugins/
+proxy/target/VTpa-1.3.0.jar          → 代理的 plugins/
+bridge/target/VTpaBridge-1.3.0.jar   → 每个要参与的子服的 plugins/
 
 # 3. 重启（子服和代理都要重启），会自动生成 plugins/vtpa/config.toml
 # 4. 改配置后 /vtpa reload（需要 vtpa.reload）
@@ -96,13 +96,44 @@ vtpa.toggle.bypass    能发给关掉接收的人
 vtpa.cooldown.bypass  不受发起冷却
 vtpa.server.bypass    不受子服黑白名单
 vtpa.limit.bypass     不受「最多挂几个请求」限制
-vtpa.move.bypass      倒计时期间动一下也不取消
+vtpa.to.bypass        🔴 不受下面那套 vtpa.to.<服名> 限制
+                      ⚠️ 必须在 [permissions] 里设 to-bypass = true 才生效（默认不生效）
 ```
+
+⚠️ **移动取消不看权限**：倒计时里谁动了都取消，OP / 管理员也不例外 —— 没有一个节点能绕过
+（早先的 `vtpa.move.bypass` 已经删掉了）。想整服关掉只能改 `movement.enabled = false`。
 
 ```bash
 /lp group default permission set vtpa.use true
 /lp group vip   permission set vtpa.all true
 /lp group admin permission set vtpa.* true
+```
+
+### 🔴 「传送到某个子服」的权限 `vtpa.to.<子服名>`
+
+**跨服**传送时，**被移动的那个人**必须有 `vtpa.to.<落点服>`。节点一律小写，
+**默认值全是「未定义」= 没有授权就是拒绝**（LuckPerms 里查不到这个节点就是 undefined），
+装好插件不授权的话，所有跨服传送请求都会被拦下。
+
+判据是「谁会被挪过去」，不是「谁敲的命令」：
+
+| 场景 | 谁被移动 | 落点服 | 查谁的权限 |
+| --- | --- | --- | --- |
+| 阿甲在 survival，`/tpa 阿乙`（阿乙在 industry） | 阿甲 | industry | **阿甲**要有 `vtpa.to.industry` |
+| 阿乙在 industry，`/tpahere 阿甲`（阿甲在 survival） | 阿甲 | industry | 还是**阿甲**要有 `vtpa.to.industry` |
+
+- **同服不走这套**：两人本来就在同一个子服互传，不需要任何 `vtpa.to.*` 节点。
+- `/tpaall` `/tpaserver` `/tpaworld` 群发时，没有权限的人会被**静默跳过**（不会刷屏）。
+- 有 `vtpa.*` 或 `*` 通配符的人对这套节点一律算「有」—— 想让管理员也受控就别发通配符。
+
+```bash
+# 默认组：只能在大厅和生存服之间来回
+/lp group default permission set vtpa.to.lobby true
+/lp group default permission set vtpa.to.survival true
+# VIP 额外能进生电服
+/lp group vip      permission set vtpa.to.industry true
+# 查某个人现在到底有没有
+/lp user 阿甲 permission check vtpa.to.industry
 ```
 
 ---
@@ -112,7 +143,8 @@ vtpa.move.bypass      倒计时期间动一下也不取消
 ```
 /tpa 小明
   ↓ 检查：不是自己 → 没在冷却 → 双方子服都在名单里 → 允许跨服/同服
-         → 小明没关接收 → 两人之间没有未处理的请求 → 我挂着的请求没超上限
+         → （跨服时）我有 vtpa.to.小明所在的服 → 小明没关接收
+         → 两人之间没有未处理的请求 → 我挂着的请求没超上限
          → 小明没在传送中 → 落点那个服装了桥接
   ↓
 小明收到："小明 请求传送到你这里! [接受] [拒绝]"
@@ -171,6 +203,7 @@ vtpa.move.bypass      倒计时期间动一下也不取消
 | 冷却中 | 「慢一点，还要 N 秒」（有 bypass 权限的不受影响） |
 | 自己或对方在不允许的子服 | 「你所在的服务器（xxx）不能使用传送请求」/「xxx 所在的服务器不能使用传送请求」 |
 | 关了跨服 / 同服 | 「没有开启跨服传送请求」/「没有开启同服传送请求」 |
+| 跨服、但我（要过去的人）没有 vtpa.to.<对方所在的服> | 我自己发起 →「你没有权限传送到 X 服务器」；`/tpahere` 叫对方过来、对方没权限 →「某某没有权限传送到 X 服务器」 |
 | 对方关了接收 | 「对方关掉了传送请求」（有 toggle.bypass 的可强发） |
 | 两人之间已经挂着请求 | 「你已经给他发过请求了，还剩 N 秒」或「他已经给你发过一个了」 |
 | 两人互相请求、结果一样 | **直接同意**，进倒计时（详见上面「互相请求」一节） |
@@ -181,6 +214,8 @@ vtpa.move.bypass      倒计时期间动一下也不取消
 | 请求挂着时某人掉线 | 自动作废，按 `notify-on-disconnect` 通知另一方 |
 | 接受时对方已下线 | 「对方已经下线，传送请求作废」 |
 | 接受时某一方换到了名单外的服 | 再查一次名单，拦下来 |
+| 接受时某人已换到别的服 | 按【换服之后】的落点服再查一次 vtpa.to.<服名>，拦下来 |
+| 倒计时结束时两人在不同的服 | 最后再查一次 vtpa.to.<落点服>，没权限就作废并提示 |
 | 倒计时期间移动超过容差 | 取消，双方都收到提示 |
 | 倒计时期间换服 / 掉线 | 取消 |
 | 倒计时期间换了世界 | 取消（可关 `movement.cancel-on-world-change`） |

@@ -8,6 +8,9 @@ import cn.shijiu.vtpa.RequestType;
 import cn.shijiu.vtpa.TomlLite;
 import cn.shijiu.vtpa.TpaRequest;
 import cn.shijiu.vtpa.Wire;
+import com.velocitypowered.api.command.CommandSource;
+import com.velocitypowered.api.permission.Tristate;
+import net.kyori.adventure.identity.Identity;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainComponentSerializer;
 
@@ -124,6 +127,47 @@ public class SmokeTest {
                 "[countdown]\nmode = \"随便写\"\n")).unwrap().countdownMode().equals("none"));
         check("missing 写歪了退回 deny（宁可不送）", "deny".equals(new Probe(TomlLite.parse(
                 "[bridge]\nmissing = \"随便写\"\n")).unwrap().bridgeMissing()));
+
+        // ---- 「传送到某个子服」的权限 vtpa.to.<服名> ----
+        check("travel 节点按服名拼、一律转小写",
+                "vtpa.to.survival".equals(Permissions.travelNode("Survival")));
+        check("travel 节点服名两端的空格会被 trim",
+                "vtpa.to.industry".equals(Permissions.travelNode("  Industry  ")));
+        check("取不到服名时不判定（返回 null，调用方按放行处理）",
+                Permissions.travelNode(null) == null && Permissions.travelNode("  ") == null);
+        check("bypass 和 travel 是两个不同的节点，通配不会串",
+                !Permissions.TRAVEL_BYPASS.equals(Permissions.TRAVEL)
+                        && Permissions.TRAVEL_BYPASS.startsWith(Permissions.TRAVEL));
+        // 三种真实权限值：显式给了 / 显式拒了 / 压根没配过（undefined）
+        final CommandSource granted = sourceOf("vtpa.to.survival", Tristate.TRUE);
+        final CommandSource denied = sourceOf("vtpa.to.survival", Tristate.FALSE);
+        final CommandSource untouched = sourceOf("vtpa.to.nothing", Tristate.TRUE);
+        check("★ 显式给了 vtpa.to.survival → 能进 survival",
+                Permissions.mayTravelTo(granted, "survival", false));
+        check("★ 显式拒了 vtpa.to.survival → 进不去 survival",
+                !Permissions.mayTravelTo(denied, "survival", false));
+        check("★ 压根没配过（undefined）→ 拒绝 —— 这套节点的默认就是未定义",
+                !Permissions.mayTravelTo(untouched, "survival", false));
+        check("服名大小写不敏感（节点已经转小写）", Permissions.mayTravelTo(granted, "SURVIVAL", false));
+        check("给了这个服换不到别服（survival 的 grant 不能进 industry）",
+                !Permissions.mayTravelTo(granted, "industry", false));
+        check("落点服取不到时放行（交给后面的闸去拦）", Permissions.mayTravelTo(untouched, null, false));
+        // bypass 默认必须焊死：给管理组发 vtpa.* / * 会让它自动成立
+        final CommandSource admin = sourceOf("vtpa.to.bypass", Tristate.TRUE);
+        check("to-bypass 默认不生效：有 vtpa.to.bypass 照样被 vtpa.to.<服名> 拦住",
+                !Permissions.mayTravelTo(admin, "survival", false));
+        check("to-bypass 打开后 vtpa.to.bypass 才生效",
+                Permissions.mayTravelTo(admin, "survival", true));
+        check("随包配置默认不给 bypass 特权", !defaults.toBypassEnabled());
+        check("随包配置里显式写出了 permissions.to-bypass", map.containsKey("permissions.to-bypass"));
+        check("被拦时有「我自己没权限」那条提示语，且带 #server#",
+                map.containsKey("messages.travel-denied-self")
+                        && defaults.message("travel-denied-self", "server", "industry")
+                                .contains("industry"));
+        check("被拦时有「对方没权限」那条提示语，说清楚是谁（#target#）",
+                map.containsKey("messages.travel-denied-target")
+                        && defaults.message("travel-denied-target", "target", "小明",
+                                "server", "industry").contains("小明"));
 
         // ---- 服务器名单 ----
         check("黑名单默认全放行", defaults.filter().allows("survival"));
@@ -269,6 +313,24 @@ public class SmokeTest {
             failures.add(name);
             System.out.println("  ❌ " + name);
         }
+    }
+
+    /**
+     * 一个假的玩家：只有 {@code node} 这一个权限节点有值，其余一律 UNDEFINED
+     * —— 正好模拟「服主只给了 vtpa.to.survival」这种情况。
+     */
+    private static CommandSource sourceOf(final String node, final Tristate state) {
+        return new CommandSource() {
+            @Override
+            public Tristate getPermissionValue(final String permission) {
+                return node.equals(permission) ? state : Tristate.UNDEFINED;
+            }
+
+            @Override
+            public void sendMessage(final Identity source, final Component message) {
+                // 测试用的桩，消息不需要落地
+            }
+        };
     }
 
     /**
