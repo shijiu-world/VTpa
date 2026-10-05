@@ -225,9 +225,9 @@ server-denied-target = "&6#target# &e所在的服务器不能使用传送请求"
 cross-server-disabled = "&c没有开启跨服传送请求"
 same-server-disabled = "&c没有开启同服传送请求"
 request-sent = "&e请求已发送给 &6#target# #cancel#"
-request-sent-all = "&a已向 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
-request-sent-world = "&a已向当前世界的 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
-request-sent-server = "&a已向本服的 &7#amount# &a名玩家发送请求（跳过 &7#skipped# &a名）"
+request-sent-all = "&e已向 &6#amount# &e名玩家发送请求（跳过 &6#skipped# &e名）"
+request-sent-world = "&e已向当前世界的 &6#amount# &e名玩家发送请求（跳过 &6#skipped# &e名）"
+request-sent-server = "&e已向本服的 &6#amount# &e名玩家发送请求（跳过 &6#skipped# &e名）"
 
 # /tpaworld 专用：问不到自己在哪个世界（子服没装桥接 / 桥接超时）
 world-unknown = "&c拿不到你所在的世界，子服装 VTpaBridge 了吗？请向腐竹反馈"
@@ -253,13 +253,13 @@ offline-abort = "&e对方已经下线，传送请求作废"
 countdown-moved = "&e由于您的移动，命令已取消"
 countdown-moved-other = "&6#player# &e在倒计时中移动了，传送取消"
 countdown-switch = ""  # &c你在传送倒计时中切换了服务器，传送取消
-teleport-done = ""     # &a传送完成
+teleport-done = ""     # &e传送完成
 teleport-failed = "&c传送失败：&7#reason#"
 bridge-missing = "&c&7#server# &c这个服没有装 VTpaBridge，没法传送到具体位置"
 bridge-missing-cross = "&c&7#server# &c这个服没有装 VTpaBridge，只能把你送到那个服的出生点"
 toggle-off = "&e已关闭接收别人的传送请求"
 toggle-on = "&e已恢复接收传送请求"
-reloaded = "&a配置已重新加载"
+reloaded = "&e配置已重新加载"
 reload-failed = "&c配置加载失败，用的还是旧配置。原因：#reason#"
 switching = ""    # &7正在把你送到 &e#server#&7…
 
