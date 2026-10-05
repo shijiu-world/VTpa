@@ -82,6 +82,46 @@ public final class TpaRequest {
         return requesterId.equals(me) ? targetName : requesterName;
     }
 
+    /**
+     * 真正<b>被搬走</b>的那个人 —— {@code /tpa} 搬发起者，{@code /tpahere} 搬被请求者。
+     *
+     * <p>判断「两条请求结果是不是一样」全靠它和 {@link #destinationId()}：
+     * 方向和发起者都可能不同，但动的人、落点都一样的话，玩家那边看到的结果是一模一样的。
+     */
+    public UUID moverId() {
+        return type.movesRequester() ? requesterId : targetId;
+    }
+
+    /** 落点：被搬去谁那儿。 */
+    public UUID destinationId() {
+        return type.movesRequester() ? targetId : requesterId;
+    }
+
+    public String moverName() {
+        return type.movesRequester() ? requesterName : targetName;
+    }
+
+    public String destinationName() {
+        return type.movesRequester() ? targetName : requesterName;
+    }
+
+    /**
+     * 另一条请求跟这条的<b>结果是不是一模一样</b>：动的是同一个人、落点也是同一个人。
+     *
+     * <pre>
+     *   A /tpa B     → 动 A、落点 B
+     *   B /tpahere A → 动 A、落点 B     ✅ 一样（这就是「互相请求」）
+     *
+     *   A /tpa B     → 动 A、落点 B
+     *   B /tpa A     → 动 B、落点 A     ❌ 相反（一个想去对方那儿，不是一回事）
+     * </pre>
+     */
+    public boolean sameOutcomeAs(final TpaRequest other) {
+        return other != null
+                && moverId().equals(other.moverId())
+                && destinationId().equals(other.destinationId());
+    }
+
     @Override
     public String toString() {
         return type + " " + requesterName + " -> " + targetName;

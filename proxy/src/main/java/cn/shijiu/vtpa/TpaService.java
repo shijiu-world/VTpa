@@ -85,8 +85,16 @@ public final class TpaService {
      *
      * <p>单独拆出来是为了 {@code /tpaall} 复用 —— 它要静默跳过不合适的人，
      * 不能每人弹一条提示。
+     *
+     * @param mutual 走「互相请求直接同意」那条路时为 true。语义上它等价于
+     *               「B 点了 A 那条请求的 [接受]」，被消费掉的是对面先发的那一条，
+     *               <b>并没有新请求产生</b>，所以「发新请求」那几道闸要跳过：
+     *               冷却、对方关没关接收、我挂着的请求超没超上限、两人之间是不是已经有请求。
+     *               「传送能不能发生」那几道闸一个不少：子服名单、跨服/同服开关、
+     *               人在不在线、有没有人在倒计时、落点那个服装没装桥接。
      */
-    private String rejection(final Player requester, final Player target, final RequestType type) {
+    private String rejection(final Player requester, final Player target,
+                             final RequestType type, final boolean mutual) {
         final Configuration config = config();
         final UUID requesterId = requester.getUniqueId();
         final UUID targetId = target.getUniqueId();
@@ -95,8 +103,8 @@ public final class TpaService {
             return "self-request";
         }
 
-        // 冷却
-        if (!Permissions.has(requester, Permissions.COOLDOWN_BYPASS, false)) {
+        // 冷却（⚠️ 互相请求不产生新请求，所以不算「又一次发起」，不卡冷却）
+        if (!mutual && !Permissions.has(requester, Permissions.COOLDOWN_BYPASS, false)) {
             final Long last = lastRequestAt.get(requesterId);
             if (last != null) {
                 final long seconds = config.cooldownSeconds();
@@ -149,18 +157,22 @@ public final class TpaService {
         }
 
         // 对方关了接收
-        if (isDisabled(targetId) && !Permissions.has(requester, Permissions.TOGGLE_BYPASS, false)) {
+        // ⚠️ 互相请求时「对方」正是先发那条请求的人 —— 人家早就表态了，
+        //    这时候拿「他关了接收」把人挡回去会很莫名其妙（他明明是主动的那一方）
+        if (!mutual && isDisabled(targetId)
+                && !Permissions.has(requester, Permissions.TOGGLE_BYPASS, false)) {
             return "target-disabled";
         }
 
         // 两个人之间已经挂着一个未处理的请求（双向都算）
+        // ⚠️ 走「互相请求」时不查这条 —— 那条挂着的请求正是我们打算替双方同意掉的那一条
         final TpaRequest existing = store().findBetween(requesterId, targetId);
-        if (existing != null) {
+        if (existing != null && !mutual) {
             return requesterId.equals(existing.requesterId()) ? "already-pending" : "reverse-pending";
         }
 
-        // 发起者挂着的请求太多
-        if (!Permissions.has(requester, Permissions.LIMIT_BYPASS, false)
+        // 发起者挂着的请求太多（⚠️ 同上：互相请求是「摘掉」一条，不是「再加」一条）
+        if (!mutual && !Permissions.has(requester, Permissions.LIMIT_BYPASS, false)
                 && store().outgoingCount(requesterId) >= config.maxOutgoingRequests()) {
             return "too-many-outgoing";
         }
@@ -187,22 +199,41 @@ public final class TpaService {
     /**
      * 发一条请求。
      *
+     * <p>⚠️ 进来先看一眼是不是「互相请求」：对方已经发过一条、两条的结果又完全一样，
+     * 那就不是发请求，而是直接同意（见 {@link #mutualPending}）。
+     *
      * @param label 玩家实际敲的命令，用于提示语里的 {@code #label#}
      */
     public void sendRequest(final Player requester, final Player target,
                             final RequestType type, final String label) {
         final Configuration config = config();
-        final String problem = rejection(requester, target, type);
-        if (problem != null) {
-            sendRejection(requester, problem, target.getUsername(), label);
-            return;
-        }
-        final long timeout = config.requestTimeoutSeconds() * 1000L;
         final long now = System.currentTimeMillis();
+        final long timeout = config.requestTimeoutSeconds() * 1000L;
         final TpaRequest request = new TpaRequest(
                 requester.getUniqueId(), requester.getUsername(),
                 target.getUniqueId(), target.getUsername(),
                 type, now, now + timeout);
+
+        // ① 互相请求 → 直接同意（对方先发过、还没过期、两条结果一样）
+        final TpaRequest pending = mutualPending(request, now);
+        if (pending != null) {
+            final String problem = rejection(requester, target, type, true);
+            if (problem != null) {
+                sendRejection(requester, problem, target.getUsername(), label);
+                return;
+            }
+            store().remove(pending);
+            lastRequestAt.put(requester.getUniqueId(), now);
+            startMutual(pending);
+            return;
+        }
+
+        // ② 普通路径：过闸门 → 挂到账本 → 通知对方
+        final String problem = rejection(requester, target, type, false);
+        if (problem != null) {
+            sendRejection(requester, problem, target.getUsername(), label);
+            return;
+        }
         store().put(request);
         lastRequestAt.put(requester.getUniqueId(), now);
 
@@ -221,6 +252,73 @@ public final class TpaService {
             plugin.logger().info("[vtpa] " + requester.getUsername() + " -> " + target.getUsername()
                     + " (" + type + ")");
         }
+    }
+
+    /**
+     * 找出「对方先发过一条、而且跟我要发的这条<b>结果一模一样</b>」的那条请求。
+     *
+     * <p>这就是「互相请求」：两边各说了一次，说的还是同一件事 ——
+     * A 敲 {@code /tpa B}（我想去你那儿）之后 B 敲 {@code /tpahere A}（你过来吧），
+     * 两条都是「A 传送到 B」，没必要再让谁点一次接受。
+     *
+     * <p>三条硬条件，少一条都不算：
+     * <ol>
+     *   <li>那条是<b>对面</b>先发的（自己重发自己那条走「你已经请求过了」）；</li>
+     *   <li>还没过有效期（过期了就当没有 —— 对方的意愿已经作废了）；</li>
+     *   <li>动的是同一个人、落点也是同一个人（{@link TpaRequest#sameOutcomeAs}）。</li>
+     * </ol>
+     *
+     * @return 可以「直接同意」的那条请求；没有 / 开关关了 / 已经过期 → null
+     */
+    private TpaRequest mutualPending(final TpaRequest candidate, final long now) {
+        if (!config().reverseAutoAccept()) {
+            return null;
+        }
+        final TpaRequest pending = store().findBetween(candidate.requesterId(), candidate.targetId());
+        if (pending == null || pending.isExpired(now)) {
+            return null;
+        }
+        if (pending.requesterId().equals(candidate.requesterId())) {
+            // 是我自己之前发的 —— 那叫「重复请求」，不叫「互相请求」
+            return null;
+        }
+        return pending.sameOutcomeAs(candidate) ? pending : null;
+    }
+
+    /**
+     * 双方互相请求 → 直接进倒计时。
+     *
+     * <p>跟「点接受」那条路唯一的区别是提示语：两边都被告知「双方都同意了」，
+     * 而不是「你接受了 / 对方接受了」—— 因为这里确实是两个人各自表达了同一个意思。
+     * 倒计时、移动取消、落点锁定、切服这些完全复用 {@link Teleporter#start}。
+     *
+     * @param pending 先发的那条（它才是被「同意」掉的那一条）
+     */
+    private void startMutual(final TpaRequest pending) {
+        final Configuration config = config();
+        final long seconds = Math.max(0L, config.teleportDelaySeconds());
+        final Optional<Player> mover = proxy().getPlayer(pending.moverId());
+        final Optional<Player> dest = proxy().getPlayer(pending.destinationId());
+        if (mover.isEmpty() || dest.isEmpty()) {
+            // 闸门里查过两边都在线，正常走不到这儿；真走到了就当普通请求被拦下，别硬传
+            mover.ifPresent(p -> plugin.send(p, config.message("offline-abort")));
+            dest.ifPresent(p -> plugin.send(p, config.message("offline-abort")));
+            return;
+        }
+        // 老配置（1.2.0 之前生成的）里没有这两条 —— 退回「已接受」，别发出「缺少配置项」
+        final String moverKey = config.hasMessage("mutual-accept-mover")
+                ? "mutual-accept-mover" : "accepted-self";
+        final String destKey = config.hasMessage("mutual-accept-dest")
+                ? "mutual-accept-dest" : "accepted-other";
+        plugin.send(mover.get(), config.message(moverKey,
+                "player", pending.destinationName(), "seconds", String.valueOf(seconds)));
+        plugin.send(dest.get(), config.message(destKey,
+                "player", pending.moverName(), "seconds", String.valueOf(seconds)));
+        if (config.logToConsole()) {
+            plugin.logger().info("[vtpa] " + pending.moverName() + " ↔ " + pending.destinationName()
+                    + " 互相请求，自动同意：" + pending.moverName() + " → " + pending.destinationName());
+        }
+        plugin.teleporter().start(pending);
     }
 
     /** 把 {@link #rejection} 返回的 "原因" 翻译成一条提示语发给发起者。 */
@@ -351,7 +449,8 @@ public final class TpaService {
         int sent = 0;
         int skipped = 0;
         for (final Player target : targets) {
-            if (rejection(requester, target, RequestType.HERE) != null) {
+            // 群发不参与「互相请求直接同意」—— 忽然把人传走太突然，还是让对方自己点
+            if (rejection(requester, target, RequestType.HERE, false) != null) {
                 skipped++;
                 continue;
             }

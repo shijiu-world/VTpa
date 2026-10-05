@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 一键构建：代理端 VTpa-1.0.0.jar + 子服端 VTpaBridge-1.0.0.jar
+# 一键构建：代理端 VTpa-<版本>.jar + 子服端 VTpaBridge-<版本>.jar
+# ⚠️ 版本号只写在 pom.xml（三个：父 + proxy + bridge）和 VTpa.java 的 @Plugin(version=...)
 # 依赖已经全部在 ~/.m2 里了，所以走离线（-o），断网也能编。
 set -e
 cd "$(dirname "$0")"

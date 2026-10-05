@@ -81,6 +81,7 @@ public final class Configuration {
     private final boolean allowSameServer;
     private final boolean notifyOnExpire;
     private final boolean notifyOnDisconnect;
+    private final boolean reverseAutoAccept;
     // ---------------- 倒计时 ----------------
     private final boolean countdownEnabled;
     private final String countdownMode;
@@ -157,6 +158,8 @@ public final class Configuration {
         this.allowSameServer = TomlLite.bool(m, "general.allow-same-server", true);
         this.notifyOnExpire = TomlLite.bool(m, "general.notify-on-expire", true);
         this.notifyOnDisconnect = TomlLite.bool(m, "general.notify-on-disconnect", true);
+        // 默认开：A 请求去 B 那儿、B 又反过来叫 A 过来 —— 明明是同一个意思，不该再点一次接受
+        this.reverseAutoAccept = TomlLite.bool(m, "general.reverse-auto-accept", true);
 
         this.countdownEnabled = TomlLite.bool(m, "countdown.enabled", true);
         this.countdownMode = normalizeMode(TomlLite.string(m, "countdown.mode", "title"));
@@ -407,6 +410,19 @@ public final class Configuration {
         return notifyOnDisconnect;
     }
 
+    /**
+     * 「互相请求」要不要直接同意（{@code general.reverse-auto-accept}，默认 true）。
+     *
+     * <p>开着的时候：两人之间已经挂着一条未处理的请求，另一人又发来一条
+     * <b>结果一模一样</b>的（动的是同一个人、落点也是同一个），就当双方都同意了，
+     * 直接进倒计时 —— 不再弹「接受 / 拒绝」，也不再发「请求已发送」。
+     *
+     * <p>关掉就退回老样子：后发的那条被挡回去（提示「他已经给你发过请求了」）。
+     */
+    public boolean reverseAutoAccept() {
+        return reverseAutoAccept;
+    }
+
     public boolean countdownEnabled() {
         return countdownEnabled;
     }
@@ -620,6 +636,17 @@ public final class Configuration {
             return "/" + alias;
         }
         return "/" + alias + " " + sub;
+    }
+
+    /**
+     * 这条提示语在配置里有没有写。
+     *
+     * <p>用来做**升级兜底**：老版本生成的 config.toml 里没有后加的键，
+     * 直接取会发出「(缺少配置项 messages.xxx)」这种鬼东西 ——
+     * 调用方可以先问一句，没有就退回一条老的。
+     */
+    public boolean hasMessage(final String key) {
+        return messages.containsKey(key);
     }
 
     /** 不带 prefix 的原始提示语 —— 少数场景（比如要拼换行）用。 */

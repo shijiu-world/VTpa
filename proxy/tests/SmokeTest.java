@@ -171,6 +171,54 @@ public class SmokeTest {
         check("另一个当事人取对", r1.other(a).equals(b));
         check("另一个当事人的名字取对", "阿甲".equals(r1.otherName(b)));
 
+        // ---- 互相请求（反向请求自动同意）—— 判定全是纯数据，不开服也能测 ----
+        // 四种组合：谁先发 × 发的是 tpa 还是 tpahere
+        final long t0 = 1_000_000L;
+        final TpaRequest aTpaB = new TpaRequest(a, "阿甲", b, "阿乙", RequestType.TPA, t0, t0 + 180_000L);
+        final TpaRequest bTpaA = new TpaRequest(b, "阿乙", a, "阿甲", RequestType.TPA, t0, t0 + 180_000L);
+        final TpaRequest aHereB = new TpaRequest(a, "阿甲", b, "阿乙", RequestType.HERE, t0, t0 + 180_000L);
+        final TpaRequest bHereA = new TpaRequest(b, "阿乙", a, "阿甲", RequestType.HERE, t0, t0 + 180_000L);
+        check("/tpa B 动的是发起者、落点是对方",
+                aTpaB.moverId().equals(a) && aTpaB.destinationId().equals(b));
+        check("/tpahere B 动的是对方、落点是自己",
+                aHereB.moverId().equals(b) && aHereB.destinationId().equals(a));
+        check("动的人 / 落点的名字也对得上",
+                "阿甲".equals(aTpaB.moverName()) && "阿乙".equals(aTpaB.destinationName())
+                        && "阿乙".equals(aHereB.moverName()) && "阿甲".equals(aHereB.destinationName()));
+        check("★ A /tpa B + B /tpahere A → 都是 A 去 B，算互相请求",
+                aTpaB.sameOutcomeAs(bHereA) && bHereA.sameOutcomeAs(aTpaB));
+        check("★ A /tpahere B + B /tpa A → 都是 B 去 A，也算互相请求",
+                aHereB.sameOutcomeAs(bTpaA) && bTpaA.sameOutcomeAs(aHereB));
+        check("A /tpa B + B /tpa A → 一个想去对方那儿，结果相反，不算",
+                !aTpaB.sameOutcomeAs(bTpaA));
+        check("A /tpahere B + B /tpahere A → 结果相反，不算",
+                !aHereB.sameOutcomeAs(bHereA));
+        check("同一个人的两条（/tpa B 与 /tpahere B）结果也相反",
+                !aTpaB.sameOutcomeAs(aHereB));
+        check("跟 null 比不算互相请求（不炸）", !aTpaB.sameOutcomeAs(null));
+        check("互相请求自动同意默认开", defaults.reverseAutoAccept()
+                && Boolean.TRUE.equals(map.get("general.reverse-auto-accept")));
+        check("随包配置里显式写出了 reverse-auto-accept",
+                map.containsKey("general.reverse-auto-accept"));
+        check("关掉开关就不自动同意", !new Probe(TomlLite.parse(
+                "[general]\nreverse-auto-accept = false\n")).unwrap().reverseAutoAccept());
+        check("互相同意有专属提示语（被传送的那个人）",
+                map.containsKey("messages.mutual-accept-mover")
+                        && defaults.message("mutual-accept-mover").contains("#seconds#"));
+        check("互相同意有专属提示语（另一方）",
+                map.containsKey("messages.mutual-accept-dest")
+                        && defaults.message("mutual-accept-dest").contains("#player#"));
+        // 老配置（升级上来的）里没有这两条 → 得能退回老的，不能发出「缺少配置项」
+        final Configuration old = new Probe(TomlLite.parse(
+                "[messages]\naccepted-self = \"&e已接受\"\naccepted-other = \"&e被接受了\"\n"))
+                .unwrap();
+        check("老配置缺 mutual-accept-mover → hasMessage 为 false",
+                !old.hasMessage("mutual-accept-mover") && !old.hasMessage("mutual-accept-dest"));
+        check("老配置里 hasMessage 认得已有的键", old.hasMessage("accepted-self"));
+        check("老配置退回 accepted-self，不发「缺少配置项」",
+                !old.message("accepted-self").contains("缺少配置项")
+                        && old.message("accepted-self").endsWith("&e已接受"));
+
         // ---- 插件消息协议 ----
         final Wire.Loc loc = new Wire.Loc("world", 1.5D, 64D, -3.25D, 90F, -12F);
         check("PING 能解回来", Wire.read(Wire.ping()).op() == Wire.OP_PING);

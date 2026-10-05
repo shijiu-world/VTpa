@@ -41,6 +41,16 @@ allow-by-default = true
 #   allow-same-server         允许同服请求（两人在同一个子服）
 #   notify-on-expire          请求过期时通知双方
 #   notify-on-disconnect      请求未处理、当事人掉线时通知另一方
+#   reverse-auto-accept       「互相请求」直接同意（默认开）：
+#                             A 给 B 发了个请求还没处理，B 反过来又发一条 ——
+#                             只要两条的「结果」一样（动的是同一个人、落点也是同一个人），
+#                             就当双方都同意了，直接进倒计时，不用再点一次接受。
+#                               ✅ A 敲 /tpa B（想去 B 那儿）→ B 敲 /tpahere A（叫 A 过来）
+#                                  两条都是「A 传送到 B」→ 自动同意
+#                               ❌ A 敲 /tpa B → B 也敲 /tpa A（B 想去 A 那儿）
+#                                  结果正好相反 → 不自动同意，B 会收到「已经给你发过请求了」
+#                             ⚠️ 只对单人的 /tpa /tpahere 生效，/tpaall 那类群发不算
+#                                （群发里忽然把人传走太突然，还是让对方自己点）
 # ------------------------------------------------------------
 [general]
 request-timeout-seconds = 180
@@ -51,6 +61,7 @@ allow-cross-server = true
 allow-same-server = true
 notify-on-expire = true
 notify-on-disconnect = true
+reverse-auto-accept = true
 
 # ------------------------------------------------------------
 # 同意之后的倒计时显示
@@ -242,6 +253,11 @@ pick-one = "&c你有多个待处理请求，指定一个：&f#list#"
 # 下面这些 *-self 是「做事的那个人」看到的，*-other 是「另一方」看到的
 accepted-self = "&e已接受 &6#player# &e的传送请求"
 accepted-other = "&6#player# &e接受了请求"
+# 互相请求自动同意时用这两条（general.reverse-auto-accept = true）
+#   mutual-accept-mover 发给「被传送的那个人」，#player# = 另一方
+#   mutual-accept-dest  发给「另一方」，#player# = 被传送的那个人
+mutual-accept-mover = "&a双方都同意了 —— &6#seconds# &a秒后传送到 &6#player# &a那里，请不要移动"
+mutual-accept-dest = "&a双方都同意了 —— &6#player# &a会在 &6#seconds# &a秒后传送过来"
 denied-self = "&e已拒绝 &6#player# &e的请求"
 denied-other = "&6#target# &e拒绝了你的传送请求"
 cancelled-self = "&e传送请求已取消"

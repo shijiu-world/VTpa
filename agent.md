@@ -9,12 +9,12 @@
 
 - 源码：`D:\Code\mc\plugins\VTpa`（Maven 多模块）
 - 仓库：`git@github.com:shijiu-world/VTpa.git`（**走 SSH**，https 会被本机代理掐断 502）
-- 版本：**1.1.0**（移动检测是 1.1.0 起的协议）
+- 版本：**1.2.0**（移动检测是 1.1.0 起的协议；1.2.0 加的是「互相请求自动同意」）
 
 | 模块 | 产物 | 装哪 | 依赖 |
 |---|---|---|---|
-| `proxy/` | `proxy/target/VTpa-1.1.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
-| `bridge/` | `bridge/target/VTpaBridge-1.1.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
+| `proxy/` | `proxy/target/VTpa-1.2.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
+| `bridge/` | `bridge/target/VTpaBridge-1.2.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
 
 **为什么必须两个**：代理拿不到坐标也挪不动人，它只知道「谁在哪个服」，能做的只有把人从 A 服切到 B 服
 （落到出生点）。要精确到「传到张三脚下」，必须有子服那一半帮忙。
@@ -38,12 +38,12 @@
 | 文件 | 行 | 职责 | 备注 |
 |---|---|---|---|
 | `VTpa.java` | 395 | 主类。注册命令/快捷命令、调度清扫、自动重载、toggles 落盘 | `onServerPostConnect` 处理切服后的坐标下发 |
-| `TpaService.java` | 704 | **业务核心**：闸门检查（`rejection()`）、accept/deny/cancel/expire、请求消息构建 | 🔴 `rejection()` 是那张 20 多条边界情况清单的实现，改它等于改玩家体验 |
+| `TpaService.java` | 803 | **业务核心**：闸门检查（`rejection()`）、互相请求自动同意（`mutualPending()`）、accept/deny/cancel/expire、请求消息构建 | 🔴 `rejection()` 是那张 20 多条边界情况清单的实现，改它等于改玩家体验 |
 | `Teleporter.java` | 651 | **传送核心**：倒计时、移动检测、锁落点、切服、落地 | 最复杂的类，见下面「传送的一生」 |
 | `Backend.java` | 377 | 对子服的一切：插件消息收发、坐标查询、特效、声音、watch、**版本协商** | `supports(server, 1,1,0)` 判断子服能力 |
-| `Configuration.java` | 735 | 全部配置读取 | 含 `parseFx()`：粒子预设串写坏只跳那个参数并在起服日志 WARN |
+| `Configuration.java` | 762 | 全部配置读取 | 含 `parseFx()`：粒子预设串写坏只跳那个参数并在起服日志 WARN；`hasMessage()` 给加新的提示语做升级兜底 |
 | `RequestStore.java` | 153 | 请求账本：按双方查、按人查、过期清扫 | `findBetween(a,b)` 保证两人之间只有一条 |
-| `TpaRequest.java` | 89 | 不可变请求对象 | `mover()`/`other()` 语义见 `RequestType` |
+| `TpaRequest.java` | 129 | 不可变请求对象 | `moverId()`/`destinationId()`/`sameOutcomeAs()` = 「两条请求结果是不是一样」，互相请求判定靠它；`other()` 语义见 `RequestType` |
 | `RequestType.java` | 22 | 枚举，`movesRequester()` 判断动的是谁 | tpa=动我，tpahere=动对方 |
 | `Wire.java` | 392 | **协议**（两份拷贝之一）：opcode 常量 + `Loc` + 编解码 | 见下面「协议」 |
 | `FxSpec.java` | 489 | **粒子预设串解析**（两份拷贝之一） | 语法兼容 CMI 的 `ParticleEffects.yml` |
@@ -98,6 +98,29 @@
   ↓ 出发特效在旧服撒，落地特效在新服撒，各管一段
 ```
 
+### 互相请求（1.2.0 起）
+
+`TpaService.sendRequest()` 一进门先问 `mutualPending()`：两人之间有没有一条
+**对面先发、还没过期、而且结果一模一样**的请求。有就走 `startMutual()` —— 摘掉先发那条、
+发两条「双方都同意了」的提示，然后照常 `Teleporter.start(pending)`。
+
+判据在 `TpaRequest.sameOutcomeAs()`：**动的是同一个人 + 落点是同一个人**。
+方向（tpa / tpahere）和谁是发起者都不重要，重要的是玩家看到的结果。
+
+| A 先 | B 后 | 动谁 / 落点 | 结果 |
+|---|---|---|---|
+| `/tpa B` | `/tpahere A` | A / B — A / B | ✅ 自动同意 |
+| `/tpahere B` | `/tpa A` | B / A — B / A | ✅ 自动同意 |
+| `/tpa B` | `/tpa A` | A / B — B / A | ❌ 相反，走 `reverse-pending` |
+| `/tpahere B` | `/tpahere A` | B / A — A / B | ❌ 相反，走 `reverse-pending` |
+
+实现上的两条硬约束（改之前先想清楚）：
+
+1. 🔴 **自动同意走的是 `rejection(..., mutual = true)`** —— 语义上等价于「点了那条请求的接受」，
+   被消费掉的是对面先发的那条，**没有新请求产生**，所以冷却 / 对方关接收 / 外出上限 / 重复请求
+   这四道「发新请求」的闸全部跳过；子服名单、跨服同服开关、在线、传送中、桥接一个不少。
+2. 🔴 **群发不参与** —— `batchSend()` 传的是 `mutual = false`。`/tpaall` 里忽然把人传走太突然。
+
 ---
 
 ## 铁律（改之前先背）
@@ -125,7 +148,8 @@
 | 加协议指令 | `proxy/Wire.java` → 跑 `build.sh` 同步 | `Backend.java` 发、`bridge/VTpaBridge.onPluginMessageReceived()` 收、版本号、`run-tests.sh` 断言 |
 | 加配置项 | `proxy/Configuration.java` + `proxy/src/main/resources/config.toml` | README 表格、`VTpa.reportConfig()`（起服日志会把关键配置全打一遍） |
 | 改边界/提示语 | `TpaService.rejection()` + `config.toml` 的 `[messages]` | README「完整边界情况清单」表格 |
-| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 154 条断言 + 实机 |
+| 改「互相请求」判定 | `TpaRequest.sameOutcomeAs()`（纯数据）+ `TpaService.mutualPending()` | `general.reverse-auto-accept`、两条 `mutual-accept-*` 提示语、README 那张四格表 |
+| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 185 条断言 + 实机 |
 | 改粒子语法 | `proxy/FxSpec.java` → `build.sh` 同步 → `bridge/Particles.java` 消费 | 语法兼容 CMI，改了要回头对一遍 |
 | 改移动判定 | `bridge/Watcher.java`（子服）+ `Teleporter.onMoved()`（代理） | `WATCH_IGNORE_Y` flag、`tolerance`、`cancel-on-world-change` |
 
@@ -136,7 +160,7 @@
 ```bash
 cd D:/Code/mc/plugins/VTpa
 ./build.sh        # 同步 Wire/FxSpec → 构建两个 jar（离线，依赖都在 ~/.m2）
-./run-tests.sh    # 168 条断言
+./run-tests.sh    # 185 条断言
 ```
 
 要求 JDK 17+（`--release 17` 编译，Velocity 3.4~4.x / Paper 都跑得动）、Maven 3.9。
@@ -144,7 +168,7 @@ cd D:/Code/mc/plugins/VTpa
 `run-tests.sh` 覆盖：TOML 解析 / 配置取值 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设 /
 空文本不发送 / 声音 / **版本协商** / 4 个新增 opcode。
 
-> ⚠️ **当前基线：168 条里 2 条失败（2026-10-04 实测）**，两处都是
+> ⚠️ **当前基线：185 条里 2 条失败（2026-10-05 实测）**，两处都是
 > **随包 `config.toml` 没跟上代码默认值**，不是功能坏了：
 >
 > | 失败断言 | 代码默认 | `config.toml` 现状 |
@@ -154,7 +178,8 @@ cd D:/Code/mc/plugins/VTpa
 >
 > 测试会额外断言「随包配置里必须显式写出 `general.lock-destination`」，所以补默认值时**不能只靠代码兜底**。
 > 修的时候两个都对齐到代码那侧（`true` / `switch`），别把代码改成迁就配置。
-它跑的是 `proxy/tests/SmokeTest.java`（429 行），**bridge 模块无测试**（依赖 paper-api，实机验证）。
+它跑的是 `proxy/tests/SmokeTest.java`（477 行），**bridge 模块无测试**（依赖 paper-api，实机验证）。
+「互相请求」的判定（`sameOutcomeAs`）全是纯数据，在账本那一节里一并测了，不开服也能验。
 
 ⚠️ `run-tests.sh` 里用 `pwd -W` 把 Git Bash 的 `/d/...` 路径转成 `D:/...` —— 这个转换是必须的，
 Windows 的 javac/java 认不了 `/d/` 路径。
@@ -176,7 +201,7 @@ JAVA_HOME=D:/Code/Java/zulu25.34.17-ca-jdk25.0.3-win_x64 mvn -B -o package
 | CMI | 粒子/声音语法移植自它。CMI 的 warmup 在 `com.Zrips.CMI.Modules.CmdWarmUp.WarmUpManager`（**不是** `WarmUps`）；预设串全集在 `ParticleManager$CMIPresetAnimations`。线上 CMI 的 `TeleportEffects:` 全是空串 → 只有 tpaWarmup 有效果 |
 | LuckPerms / PAPI / PAPIProxyBridge | **一个都不需要** |
 
-⚠️ 上线状态：`VTpa-1.1.0.jar` 已在本地测试服 `D:\game\test_velocity\velocity\plugins\` 就位，
+⚠️ 上线状态：`VTpa` 已在本地测试服 `D:\game\test_velocity\velocity\plugins\` 就位，
 **线上尚未部署**（子服端更是完全没上）。
 
 ---
