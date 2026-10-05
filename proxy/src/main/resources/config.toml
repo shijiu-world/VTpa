@@ -62,6 +62,8 @@ allow-same-server = true
 notify-on-expire = true
 notify-on-disconnect = true
 reverse-auto-accept = true
+# 落点锁在「对方按下接受」那一刻（默认 true）。关掉的话，接受之后对方继续走动会带着落点走
+lock-destination = true
 
 # ------------------------------------------------------------
 # 同意之后的倒计时显示
@@ -111,8 +113,6 @@ cancel = ""
 depart-ticks = 15
 arrive-ticks = 15
 cancel-ticks = 10
-# 一个人身上最多同时挂几段特效，超了先掐掉最老的（防刷屏卡顿）
-max-per-player = 4
 
 # ------------------------------------------------------------
 # 「倒计时期间玩家移动了就作废」的检测
@@ -256,7 +256,7 @@ accepted-other = "&6#player# &e接受了请求"
 # 互相请求自动同意时用这两条（general.reverse-auto-accept = true）
 #   mutual-accept-mover 发给「被传送的那个人」，#player# = 另一方
 #   mutual-accept-dest  发给「另一方」，#player# = 被传送的那个人
-mutual-accept-mover = "&6#player# &e接受了请求"
+mutual-accept-mover = "&6#player# &e接受了请求，&f#seconds#&e 秒后过来"
 mutual-accept-dest = "&6#player# &e接受了请求"
 denied-self = "&e已拒绝 &6#player# &e的请求"
 denied-other = "&6#target# &e拒绝了你的传送请求"

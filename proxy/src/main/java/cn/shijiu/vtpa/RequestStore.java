@@ -2,7 +2,6 @@ package cn.shijiu.vtpa;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,6 +14,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * 这样「我发出去了几个」和「谁在等我答复」都能 O(1) 查到，取消时也能一次摘干净。
  *
  * <p>⚠️ 全是纯数据操作，不碰 Velocity —— 可以脱离服务器单独跑单测（见 tests/SmokeTest）。
+ *
+ * <p>⚠️ 两层都是并发容器：写方是命令线程，读 + 删方是 {@code VTpa} 每秒一次的过期清扫，
+ * 两边会同时动手。内层用 {@link ConcurrentHashMap}（丢掉插入序没关系 ——
+ * 返回前 {@link #sorted} 会按 {@code createdAt} 重排），迭代时拿到的是弱一致快照，
+ * 不会抛 {@code ConcurrentModificationException}，也不会把内部链表写坏导致条目丢失。
  */
 public final class RequestStore {
 
@@ -70,9 +74,9 @@ public final class RequestStore {
 
     /** 放进账本（两张表都写）。 */
     public void put(final TpaRequest request) {
-        outgoing.computeIfAbsent(request.requesterId(), k -> new LinkedHashMap<>())
+        outgoing.computeIfAbsent(request.requesterId(), k -> new ConcurrentHashMap<>())
                 .put(request.targetId(), request);
-        incoming.computeIfAbsent(request.targetId(), k -> new LinkedHashMap<>())
+        incoming.computeIfAbsent(request.targetId(), k -> new ConcurrentHashMap<>())
                 .put(request.requesterId(), request);
     }
 
@@ -141,8 +145,9 @@ public final class RequestStore {
             return;
         }
         map.remove(second);
+        // ⚠️ 只在「还是我刚看的这张表」时才删键 —— 期间可能已经有新请求把它又建起来了
         if (map.isEmpty()) {
-            table.remove(first);
+            table.remove(first, map);
         }
     }
 

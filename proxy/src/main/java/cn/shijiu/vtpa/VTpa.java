@@ -47,6 +47,9 @@ import java.util.concurrent.TimeUnit;
 )
 public final class VTpa {
 
+    /** Tab 补全一次最多给这么多条 —— 几百人在线时不至于把客户端刷爆。 */
+    public static final int MAX_SUGGESTIONS = 50;
+
     private final ProxyServer proxy;
     private final Logger logger;
     private final Path dataDirectory;
@@ -159,11 +162,21 @@ public final class VTpa {
     }
 
     private void register(final String name, final SimpleCommand command, final List<String> aliases) {
-        // ⚠️ 主名一律小写：Velocity 底层走 Brigadier，literal 节点大小写敏感，
+        // ⚠️ 主名和别名一律小写、并去重：Velocity 底层走 Brigadier，literal 节点大小写敏感，
         //    注册成大写的话，敲小写会"命令不存在"，还会被转发给后端
+        final String lower = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+        final List<String> clean = new ArrayList<>();
+        for (final String alias : aliases) {
+            final String candidate = alias == null ? "" : alias.trim().toLowerCase(Locale.ROOT);
+            // 空串、跟主名重名、已经在列表里 —— 都别注册（重名会让 Velocity 直接拒绝注册）
+            if (candidate.isEmpty() || candidate.equals(lower) || clean.contains(candidate)) {
+                continue;
+            }
+            clean.add(candidate);
+        }
         final CommandManager manager = proxy.getCommandManager();
-        final CommandMeta meta = manager.metaBuilder(name)
-                .aliases(aliases.toArray(new String[0]))
+        final CommandMeta meta = manager.metaBuilder(lower)
+                .aliases(clean.toArray(new String[0]))
                 .plugin(this)
                 .build();
         manager.register(meta, command);
@@ -176,14 +189,21 @@ public final class VTpa {
     private void startSweeps() {
         // 过期清扫：每秒扫一遍账本，到点的摘掉并通知双方
         proxy.getScheduler().buildTask(this, () -> {
-            final List<TpaRequest> expired = store.removeExpired(System.currentTimeMillis());
-            if (!expired.isEmpty()) {
-                service.expire(expired);
+            // ⚠️ 这一步抛异常会把整个重复任务停掉（之后请求再也不过期）—— 宁可漏一轮
+            try {
+                final List<TpaRequest> expired = store.removeExpired(System.currentTimeMillis());
+                if (!expired.isEmpty()) {
+                    service.expire(expired);
+                }
+            } catch (final Exception e) {
+                logger.warn("[vtpa] 清扫过期请求时出错（这一轮跳过，任务继续）：" + e);
             }
         }).repeat(1L, TimeUnit.SECONDS).schedule();
 
         // 桥接心跳：定期问有人的服「你在吗」，用来判断能不能精确到坐标
         proxy.getScheduler().buildTask(this, () -> {
+            // 清掉太久没回心跳的服（子服重启 / 桥接被卸载后不该一直当它还在）
+            backend.expireStale();
             for (final RegisteredServer server : proxy.getAllServers()) {
                 if (!server.getPlayersConnected().isEmpty()) {
                     backend.ping(server);
@@ -345,13 +365,24 @@ public final class VTpa {
         source.sendMessage(Colors.colorize(legacy));
     }
 
-    /** Tab 补全用：在线玩家名（按前缀过滤，小写比较）。 */
-    public List<String> onlineNames(final String lowerPrefix) {
+    /**
+     * Tab 补全用：在线玩家名（按前缀过滤，小写比较）。
+     *
+     * @param exclude 要排除掉的人（一般就是敲命令的自己 ——
+     *                补全出自己只会换来一句「不能向自己发送请求」）；null 表示不排除
+     */
+    public List<String> onlineNames(final String lowerPrefix, final UUID exclude) {
         final List<String> names = new ArrayList<>();
         final String prefix = lowerPrefix == null ? "" : lowerPrefix;
         for (final Player player : proxy.getAllPlayers()) {
+            if (exclude != null && exclude.equals(player.getUniqueId())) {
+                continue;
+            }
             if (player.getUsername().toLowerCase(Locale.ROOT).startsWith(prefix)) {
                 names.add(player.getUsername());
+                if (names.size() >= MAX_SUGGESTIONS) {
+                    break;
+                }
             }
         }
         return names;

@@ -179,12 +179,17 @@ public final class TpaService {
 
         // 正在倒计时的人不能再接/再发
         final UUID mover = type.movesRequester() ? requesterId : targetId;
+        final UUID destId = type.movesRequester() ? targetId : requesterId;
         if (plugin.teleporter().isBusy(mover)) {
             return mover.equals(requesterId) ? "self-busy" : "target-busy";
         }
+        // ⚠️ 落点那个人也要看：他正在倒计时的话马上就要离开现在站的地方，
+        //    再配上 lock-destination 就等于把人锁在一个「马上没人了」的点上
+        if (plugin.teleporter().isBusy(destId)) {
+            return destId.equals(requesterId) ? "self-busy" : "target-busy";
+        }
 
         // 桥接：落点所在的服必须要有（不然拿不到坐标，也没法落地传送）
-        final UUID destId = type.movesRequester() ? targetId : requesterId;
         final String destServer = serverNameOf(destId);
         if (!plugin.backend().isReady(destServer)) {
             if (!sameServer && "switch".equals(config.bridgeMissing())) {
@@ -339,7 +344,10 @@ public final class TpaService {
                 plugin.send(requester, config.message("bridge-missing", "server", extra));
                 return;
             default:
-                plugin.send(requester, config.message(key, "target", targetName, "label", label));
+                // "max" 给 too-many-outgoing 那条（"最多 #max# 个"）补上上限值，
+                // 不补的话玩家看到的是字面量 #max#
+                plugin.send(requester, config.message(key, "target", targetName, "label", label,
+                        "max", String.valueOf(config.maxOutgoingRequests())));
         }
     }
 
@@ -460,12 +468,20 @@ public final class TpaService {
                     target.getUniqueId(), target.getUsername(),
                     RequestType.HERE, now, now + timeout);
             store().put(request);
+            // 跟单人路径一样：文本配成空就不发（不然每个人都会收到一条空消息）
+            if (Colors.isBlank(rawRequest(request))) {
+                skipped++;
+                continue;
+            }
             target.sendMessage(buildRequestMessage(request));
             // 对方听到「叮」的一声（CMI 的 TpaRequest）
             plugin.backend().sound(target, config.sound("request"));
             sent++;
         }
-        lastRequestAt.put(requester.getUniqueId(), System.currentTimeMillis());
+        // ⚠️ 一条都没发出去（全被跳过）就不记冷却 —— 玩家什么都没干成，不该被扣时间
+        if (sent > 0) {
+            lastRequestAt.put(requester.getUniqueId(), System.currentTimeMillis());
+        }
         plugin.send(requester, config.message(summaryKey,
                 "amount", String.valueOf(sent), "skipped", String.valueOf(skipped)));
         if (config.logToConsole()) {
@@ -581,13 +597,19 @@ public final class TpaService {
     /** 发起者撤回自己发出的请求。 */
     public void cancel(final Player viewer, final String nameArg) {
         final Configuration config = config();
-        // 请求被接受后就进倒计时了（账本里已经没有它）—— 这时候撤回要连倒计时一起掐掉，
-        // 不然玩家看到「已取消」，三秒后照样被传走。
-        if (plugin.teleporter().abortCountdown(viewer.getUniqueId())) {
+        // ⚠️ 顺序很关键：先在账本里找这条请求，找到了就<b>只撤请求</b>，别去动倒计时 ——
+        //    名字是「撤回发给谁的那条」（[撤回] 按钮就是这么点的），跟正在进行的传送是两回事。
+        //    早先这里是先掐倒计时的：点一下 [撤回] 会把另一场正在进行的传送一起掐掉。
+        //    只有没给名字、或者账本里查无此条（多半是已经被接受、正在倒计时）才去掐倒计时。
+        TpaRequest request = nameArg == null || nameArg.isBlank()
+                ? null : findOutgoing(viewer, nameArg);
+        if (request == null && plugin.teleporter().abortCountdown(viewer.getUniqueId())) {
             return;
         }
-        final List<TpaRequest> outgoing = store().outgoingFrom(viewer.getUniqueId());
-        final TpaRequest request = pick(viewer, nameArg, outgoing, "cancelled-none");
+        if (request == null) {
+            request = pick(viewer, nameArg, store().outgoingFrom(viewer.getUniqueId()),
+                    "cancelled-none");
+        }
         if (request == null) {
             return;
         }
@@ -597,6 +619,18 @@ public final class TpaService {
         if (target.isPresent()) {
             plugin.send(target.get(), config.message("cancelled-other", "player", viewer.getUsername()));
         }
+    }
+
+    /** 在某人发出的请求里按名字找一条（<b>不发任何提示</b>），找不到返回 null。 */
+    private TpaRequest findOutgoing(final Player viewer, final String nameArg) {
+        final String lower = nameArg.trim().toLowerCase(Locale.ROOT);
+        for (final TpaRequest candidate : store().outgoingFrom(viewer.getUniqueId())) {
+            if (candidate.targetName() != null
+                    && candidate.targetName().toLowerCase(Locale.ROOT).equals(lower)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------

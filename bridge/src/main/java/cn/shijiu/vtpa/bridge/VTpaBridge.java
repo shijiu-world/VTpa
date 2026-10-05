@@ -10,6 +10,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,8 +38,16 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class VTpaBridge extends JavaPlugin implements PluginMessageListener, Listener {
 
-    /** 跟代理那边 {@code bridge.channel} 保持一致。 */
-    private static final String CHANNEL = "vtpa:main";
+    /** config.yml 里没写 channel 时用它（跟代理端 bridge.channel 的默认值一致）。 */
+    private static final String DEFAULT_CHANNEL = "vtpa:main";
+
+    /**
+     * 实际用的通道名 —— <b>从 config.yml 读</b>。
+     *
+     * <p>写死的话，代理端改一下 {@code bridge.channel} 就等于让整个桥接静默失效
+     * （两边各说各话，谁也听不见谁），而这种失效在日志里一点痕迹都没有。
+     */
+    private String channel = DEFAULT_CHANNEL;
 
     /** 落点排队最多重试这么多次（每次 5 tick，约 10 秒）。 */
     private static final int MAX_ATTEMPTS = 40;
@@ -70,19 +79,36 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();   // 生成 plugins/VTpaBridge/config.yml（debug 开关在那儿）
-        Bukkit.getMessenger().registerIncomingPluginChannel(this, CHANNEL, this);
-        Bukkit.getMessenger().registerOutgoingPluginChannel(this, CHANNEL);
+        saveDefaultConfig();   // 生成 plugins/VTpaBridge/config.yml（通道名和 debug 开关在那儿）
+        channel = readChannel();
+        Bukkit.getMessenger().registerIncomingPluginChannel(this, channel, this);
+        Bukkit.getMessenger().registerOutgoingPluginChannel(this, channel);
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getPluginManager().registerEvents(watcher, this);
-        getLogger().info("[VTpaBridge] 已就绪，通道 " + CHANNEL
+        getLogger().info("[VTpaBridge] 已就绪，通道 " + channel
                 + "（配合代理端 VTpa 使用，版本 " + getDescription().getVersion() + "）。");
+    }
+
+    /**
+     * 读通道名。缺配置项 / 配成空就退回 {@code vtpa:main}。
+     *
+     * <p>只写了个名字（没带命名空间）时按代理端 {@code Backend#parseChannel} 的规矩
+     * 补成 {@code minecraft:名字}，两边才对得上。小写化是为了不让大写配置把起服搞挂
+     * （Bukkit 的通道名只认小写）。
+     */
+    private String readChannel() {
+        final String raw = getConfig().getString("channel", DEFAULT_CHANNEL);
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_CHANNEL;
+        }
+        final String trimmed = raw.trim().toLowerCase(Locale.ROOT);
+        return trimmed.contains(":") ? trimmed : "minecraft:" + trimmed;
     }
 
     @Override
     public void onDisable() {
-        Bukkit.getMessenger().unregisterIncomingPluginChannel(this, CHANNEL, this);
-        Bukkit.getMessenger().unregisterOutgoingPluginChannel(this, CHANNEL);
+        Bukkit.getMessenger().unregisterIncomingPluginChannel(this, channel, this);
+        Bukkit.getMessenger().unregisterOutgoingPluginChannel(this, channel);
         pending.clear();
         particles.stopAll();
         watcher.stopAll();
@@ -94,7 +120,7 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
 
     @Override
     public void onPluginMessageReceived(final String channel, final Player carrier, final byte[] message) {
-        if (!CHANNEL.equals(channel)) {
+        if (!this.channel.equals(channel)) {
             return;
         }
         final Wire.Packet packet = Wire.read(message);
@@ -193,7 +219,7 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
         if (sender == null) {
             return;
         }
-        sender.sendPluginMessage(this, CHANNEL, payload);
+        sender.sendPluginMessage(this, channel, payload);
     }
 
     private Player firstOnlinePlayer() {
@@ -211,28 +237,36 @@ public final class VTpaBridge extends JavaPlugin implements PluginMessageListene
 
     private void applyTeleport(final UUID uuid) {
         final PendingTp entry = pending.get(uuid);
-        if (entry == null) {
+        // 自己这条已经不是最新的落点了（有新的 TP 顶上来了）→ 直接收手，别动新的那条
+        if (entry == null || pending.get(uuid) != entry) {
             return;
         }
         final Player target = Bukkit.getPlayer(uuid);
         if (target == null || !target.isOnline()) {
             // 还没进来 —— 再等等（上限 10 秒左右，之后放弃，别一直挂着）
             if (++entry.attempts >= MAX_ATTEMPTS) {
-                pending.remove(uuid);
-                getLogger().warning("[VTpaBridge] 等不到玩家 " + uuid + " 上线，落点丢弃。");
+                // ⚠️ 只删自己这条：期间可能已经有新落点排进来了，别把新那条也删掉
+                if (pending.remove(uuid, entry)) {
+                    getLogger().warning("[VTpaBridge] 等不到玩家 " + uuid + " 上线，落点丢弃。");
+                }
                 return;
             }
             Bukkit.getScheduler().runTaskLater(this, () -> applyTeleport(uuid), 5L);
             return;
         }
-        pending.remove(uuid);
         final Wire.Loc loc = entry.loc;
         World world = loc.world() == null || loc.world().isEmpty()
                 ? null : Bukkit.getWorld(loc.world());
         if (world == null) {
-            // 世界名对不上（比如子服改了世界名）就落在他当前的世界，坐标还是那个坐标
-            getLogger().warning("[VTpaBridge] 找不到世界「" + loc.world() + "」，改用玩家当前世界。");
-            world = target.getWorld();
+            // ⚠️ 世界名对不上（子服改了世界名、跨服拿了别的世界的坐标）就<b>整条放弃</b> ——
+            //    换成当前世界 + 保留异世界坐标，等于把人扔到一个完全不相干的位置上
+            //    （主世界 / 地狱 / 末地同名坐标差着八条街），宁可让他留在原地
+            getLogger().warning("[VTpaBridge] 找不到世界「" + loc.world() + "」，放弃这次落点（不传送）。");
+            pending.remove(uuid, entry);
+            return;
+        }
+        if (!pending.remove(uuid, entry)) {
+            return;
         }
         target.teleport(new Location(world, loc.x(), loc.y(), loc.z(), loc.yaw(), loc.pitch()));
     }

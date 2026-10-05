@@ -142,16 +142,33 @@ public final class Teleporter {
         return true;
     }
 
-    /** 玩家掉线：把他正在进行的倒计时取消掉，落点也一并丢掉。 */
+    /**
+     * 玩家掉线：把他正在进行的倒计时取消掉，落点也一并丢掉。
+     *
+     * <p>⚠️ 掉线的可能是<b>落点那个人</b>（{@code /tpa} 时是目标、{@code /tpahere} 时是发起者）——
+     * 只按 moverId 摘的话，动的那个人还会傻等三秒然后被传到一个没人的地方。
+     * 所以这里两边都看：自己是 mover 的直接掐，自己是 dest 的把那条倒计时也一并掐掉。
+     */
     public void abortFor(final UUID uuid) {
-        final Countdown countdown = active.remove(uuid);
-        if (countdown != null) {
-            countdown.done = true;
-            if (countdown.task != null) {
-                countdown.task.cancel();
+        final Countdown own = active.remove(uuid);
+        if (own != null) {
+            own.done = true;
+            if (own.task != null) {
+                own.task.cancel();
             }
         }
         pendingTeleports.remove(uuid);
+        for (final Countdown countdown : new ArrayList<>(active.values())) {
+            if (!countdown.destId.equals(uuid)) {
+                continue;
+            }
+            synchronized (countdown) {
+                if (countdown.done) {
+                    continue;
+                }
+                finishEarly(countdown, "offline-abort", "offline-abort");
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -200,7 +217,9 @@ public final class Teleporter {
                 destId, dest.get().getUsername(), startServer.toLowerCase(Locale.ROOT),
                 delayMillis, checkMovement);
         countdown.watching = watching;
-        countdown.pollToo = wantCheck && config.movementPollAlso();
+        // ⚠️ 子服没接手（版本老 / 消息没发出去）时必须退回代理轮询 ——
+        //    只看 backend-and-poll 的话，子服那条路没走通时移动取消就静默失效了
+        countdown.pollToo = wantCheck && (!watching || config.movementPollAlso());
         active.put(moverId, countdown);
         // 排查用：这一行能直接看出移动检测到底走的是哪条路（子服盯 / 代理轮询 / 压根没开）
         // ⚠️ 只在 advanced.debug = true 时打 —— 每次传送都来一行的太吵了
@@ -235,6 +254,11 @@ public final class Teleporter {
                 .buildTask(plugin, () -> tick(countdown))
                 .repeat(interval, TimeUnit.MILLISECONDS)
                 .schedule();
+        // ⚠️ schedule() 返回之前倒计时可能已经被掐断了（那时 task 还是 null，取消不掉）——
+        //    这里补一刀；tick 开头也会自我了断，双保险，不留空转的僵尸任务
+        if (countdown.done && countdown.task != null) {
+            countdown.task.cancel();
+        }
         // 延迟为 0 时也要走一整轮（要问坐标），所以不在这里直接 finish
     }
 
@@ -272,6 +296,11 @@ public final class Teleporter {
         final Configuration config = plugin.configuration();
         synchronized (countdown) {
             if (countdown.done) {
+                // 被打断了但那时 task 还没赋值（取消不掉）—— 这里自我了断，
+                // 否则这个重复任务会一直空转到玩家下线
+                if (countdown.task != null) {
+                    countdown.task.cancel();
+                }
                 return;
             }
             final Optional<Player> moverOpt = plugin.proxy().getPlayer(countdown.moverId);
@@ -305,7 +334,10 @@ public final class Teleporter {
                 }
             }
 
-            if (countdown.pollToo && !countdown.checking) {
+            // ⚠️ 三个条件都要看：checkMovement（子服没接手 → 代理自己轮询）、
+            //    pollToo（子服在盯、但配了双保险）、noBridge（桥接不回包 → 别再白等一轮超时）
+            if (!countdown.noBridge && (countdown.checkMovement || countdown.pollToo)
+                    && !countdown.checking) {
                 pollPosition(countdown, mover);
             }
 
@@ -322,7 +354,9 @@ public final class Teleporter {
             countdown.checking = false;
             if (result.isEmpty()) {
                 // 桥接不在（或超时）：这一轮起不再检测，直接放行
+                // ⚠️ pollToo 也要一起关掉 —— 不然每一轮都要白等一个 bridge.timeout-millis
                 countdown.noBridge = true;
+                countdown.pollToo = false;
                 return;
             }
             countdown.lastLoc = result.get();
@@ -573,6 +607,20 @@ public final class Teleporter {
         // 稍等一拍再发：进服那一瞬间后端还在处理 join，桥接会自己排队，这里给点余量
         plugin.proxy().getScheduler()
                 .buildTask(plugin, () -> {
+                    // ⚠️ 这 300 毫秒里什么都可能发生（他又切了服、掉线了、被别的插件送走）——
+                    //    不重新确认就把「旧服的坐标」发过去，等于把他扔到当前世界的同名坐标上
+                    if (plugin.proxy().getPlayer(player.getUniqueId()).isEmpty()) {
+                        plugin.logger().warn("[vtpa] " + player.getUsername()
+                                + " 在落地前就下线了，落点作废。");
+                        return;
+                    }
+                    final String nowServer = Backend.serverName(player);
+                    if (nowServer == null || !nowServer.equalsIgnoreCase(pending.server)) {
+                        plugin.logger().warn("[vtpa] " + player.getUsername() + " 落地时已经在 "
+                                + (nowServer == null ? "?" : nowServer) + "（预期 " + pending.server
+                                + "），落点作废。");
+                        return;
+                    }
                     plugin.backend().teleport(player, pending.loc);
                     // 跨服落地：在新服的落点撒一把
                     plugin.backend().effectStatic(player, pending.loc,

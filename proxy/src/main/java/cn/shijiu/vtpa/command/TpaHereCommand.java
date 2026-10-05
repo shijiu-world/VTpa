@@ -50,7 +50,8 @@ public final class TpaHereCommand implements SimpleCommand {
     public List<String> suggest(final Invocation invocation) {
         final String[] args = invocation.arguments();
         final String prefix = args.length == 1 ? args[0].toLowerCase(Locale.ROOT) : "";
-        return plugin.onlineNames(prefix);
+        // 补出自己没意义（选了就是一句「不能向自己发送请求」），顺便把条数封顶
+        return plugin.onlineNames(prefix, TpaCommand.selfId(invocation.source()));
     }
 
     @Override

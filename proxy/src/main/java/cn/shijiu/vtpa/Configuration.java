@@ -101,7 +101,6 @@ public final class Configuration {
     private final int departTicks;
     private final int arriveTicks;
     private final int cancelTicks;
-    private final int maxPerPlayer;
     private final List<String> particleProblems;
     // ---------------- 移动检测 ----------------
     private final boolean movementEnabled;
@@ -183,7 +182,6 @@ public final class Configuration {
         this.departTicks = (int) Math.max(1L, TomlLite.integer(m, "particles.depart-ticks", 15L));
         this.arriveTicks = (int) Math.max(1L, TomlLite.integer(m, "particles.arrive-ticks", 15L));
         this.cancelTicks = (int) Math.max(1L, TomlLite.integer(m, "particles.cancel-ticks", 10L));
-        this.maxPerPlayer = (int) Math.max(1L, TomlLite.integer(m, "particles.max-per-player", 4L));
         final List<String> fxProblems = new ArrayList<>();
         collectProblems("particles.countdown", particleCountdown, fxProblems);
         collectProblems("particles.depart", particleDepart, fxProblems);
@@ -495,10 +493,6 @@ public final class Configuration {
 
     public int cancelTicks() {
         return cancelTicks;
-    }
-
-    public int maxPerPlayer() {
-        return maxPerPlayer;
     }
 
     /** 解析粒子预设时攒下的问题（写坏了之类）。非空就该打日志提醒服主。 */

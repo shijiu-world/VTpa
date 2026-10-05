@@ -8,6 +8,11 @@ import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.scheduler.ScheduledTask;
 import org.slf4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -32,6 +37,8 @@ import java.util.function.Consumer;
  * <p>「这个服装没装桥接」靠心跳判断：定期给有人的服发 {@code PING}，
  * 回 {@code PONG} 的就记进 {@link #ready}。这套是<b>失效安全</b>的 ——
  * 误判成「没装」最坏只是拒绝一次请求，不会把人传到莫名其妙的地方。
+ * 记进 ready 的服还会定期过期（见 {@link #expireStale()}），子服重启 / 桥接卸载之后
+ * 不会一直被当成「还在」。
  */
 public final class Backend {
 
@@ -43,15 +50,26 @@ public final class Backend {
     private final Set<String> ready = ConcurrentHashMap.newKeySet();
     /** 各子服桥接的版本号（小写服名 → 版本串）。用来判断它支不支持新协议。 */
     private final Map<String, String> versions = new ConcurrentHashMap<>();
-    /** 正在等坐标回包的查询（按玩家 UUID，同一人同时只会有一个）。 */
-    private final Map<UUID, Pending> pending = new ConcurrentHashMap<>();
+    /** 各子服最后一次回 PONG 的时间戳（小写服名 → 毫秒）。用来给 {@link #ready} 过期。 */
+    private final Map<String, Long> lastPong = new ConcurrentHashMap<>();
+    /**
+     * 正在等坐标回包的查询（按玩家 UUID，<b>同一人可能同时挂着好几条</b>）。
+     *
+     * <p>为什么是队列不是单个：倒计时的轮询、落点锁定、{@code /tpaworld} 挨个问 ——
+     * 这几条会同时向同一个人发问。覆盖式存放会把前一个 callback 永远丢下
+     * （那个人就一直等不到回话），所以按 FIFO 排队，先问的先答。
+     */
+    private final Map<UUID, Deque<Pending>> pending = new ConcurrentHashMap<>();
 
     private final class Pending {
         final Consumer<Optional<Wire.Loc>> callback;
+        /** 发起查询时那个人所在的服（小写）—— 回包不是这个服发的就不认。 */
+        final String server;
         volatile ScheduledTask timeout;
 
-        Pending(final Consumer<Optional<Wire.Loc>> callback) {
+        Pending(final Consumer<Optional<Wire.Loc>> callback, final String server) {
             this.callback = callback;
+            this.server = server;
         }
     }
 
@@ -105,11 +123,23 @@ public final class Backend {
         }
         // ⚠️ 插件消息一律不要往客户端转发（这是代理和子服之间的私聊）
         event.setResult(PluginMessageEvent.ForwardResult.handled());
+        // ⚠️ 只认子服发来的。这个通道玩家（以及别的插件）也能往里塞包 ——
+        //    不看来路的话谁都能伪造一条「这就是坐标」/「他动了」，
+        //    把别人的倒计时掐掉、或者把人传到伪造的点上。
+        if (!(event.getSource() instanceof ServerConnection)) {
+            if (plugin.configuration().debug()) {
+                logger.info("[vtpa] 忽略一条不是子服发来的插件消息（source = "
+                        + (event.getSource() == null ? "null"
+                                : event.getSource().getClass().getSimpleName()) + "）。");
+            }
+            return;
+        }
         final String from = serverNameOf(event.getSource());
         switch (packet.op()) {
             case Wire.OP_PONG:
                 if (from != null) {
                     final String lower = from.toLowerCase(java.util.Locale.ROOT);
+                    lastPong.put(lower, System.currentTimeMillis());
                     final boolean first = ready.add(lower);
                     final String version = packet.text() == null ? "" : packet.text();
                     versions.put(lower, version);
@@ -121,10 +151,20 @@ public final class Backend {
                 }
                 break;
             case Wire.OP_POS_RES:
-                complete(packet.uuid(), Optional.of(packet.loc()));
+                // 坐标要验一遍：世界名是空的、或者坐标是 NaN / 无穷大，
+                // 拿去当落点会把人扔到莫名其妙的地方 —— 一律按「没拿到」处理
+                if (!plausible(packet.loc())) {
+                    if (plugin.configuration().debug()) {
+                        logger.info("[vtpa] 子服 " + from + " 回的坐标不合法（" + packet.loc()
+                                + "），按「拿不到」处理。");
+                    }
+                    complete(packet.uuid(), Optional.empty(), from);
+                    break;
+                }
+                complete(packet.uuid(), Optional.of(packet.loc()), from);
                 break;
             case Wire.OP_POS_NONE:
-                complete(packet.uuid(), Optional.empty());
+                complete(packet.uuid(), Optional.empty(), from);
                 break;
             case Wire.OP_MOVED:
                 // 子服说这个人动了 —— 交给 Teleporter 判断他是不是正在倒计时
@@ -135,6 +175,13 @@ public final class Backend {
         }
     }
 
+    /** 这条坐标能不能信：世界名非空 + 三个坐标都是有限数（NaN / 无穷大一律不收）。 */
+    private static boolean plausible(final Wire.Loc loc) {
+        return loc != null
+                && loc.world() != null && !loc.world().isBlank()
+                && Double.isFinite(loc.x()) && Double.isFinite(loc.y()) && Double.isFinite(loc.z());
+    }
+
     private static String serverNameOf(final Object source) {
         if (source instanceof ServerConnection) {
             return ((ServerConnection) source).getServerInfo().getName();
@@ -142,8 +189,8 @@ public final class Backend {
         return null;
     }
 
-    private void complete(final UUID uuid, final Optional<Wire.Loc> result) {
-        final Pending p = pending.remove(uuid);
+    private void complete(final UUID uuid, final Optional<Wire.Loc> result, final String from) {
+        final Pending p = take(uuid, from);
         if (p == null) {
             return;
         }
@@ -151,6 +198,50 @@ public final class Backend {
             p.timeout.cancel();
         }
         p.callback.accept(result);
+    }
+
+    /**
+     * 取某个人队列里最前面那条查询（FIFO）。
+     *
+     * <p>两个硬条件：① 队列里确实还挂着；② 回包的服就是<b>当初发查询时那个人所在的服</b> ——
+     * 对不上说明这是别的服（或有人伪造）回的，丢掉并记一条 debug 日志。
+     * 真正那条会一直等到超时（回调收到 empty），不会被错服的坐标顶掉。
+     */
+    private Pending take(final UUID uuid, final String from) {
+        final Pending[] taken = new Pending[1];
+        final Pending[] rejected = new Pending[1];
+        pending.compute(uuid, (key, queue) -> {
+            if (queue == null || queue.isEmpty()) {
+                return null;
+            }
+            final Pending head = queue.peek();
+            if (from != null && head.server != null && !head.server.equalsIgnoreCase(from)) {
+                rejected[0] = head;
+                return queue;
+            }
+            taken[0] = queue.poll();
+            return queue.isEmpty() ? null : queue;
+        });
+        if (taken[0] == null && rejected[0] != null && plugin.configuration().debug()) {
+            logger.info("[vtpa] 忽略一条来源不匹配的坐标回包：发起时玩家在 " + rejected[0].server
+                    + "，回包来自 " + from + "。");
+        }
+        return taken[0];
+    }
+
+    /** 从队列里摘掉「我这一条」。摘掉了才返回 true（可能已经被回包取走了）。 */
+    private boolean drop(final UUID uuid, final Pending p) {
+        final boolean[] removed = new boolean[1];
+        pending.compute(uuid, (key, queue) -> {
+            if (queue == null) {
+                return null;
+            }
+            if (queue.remove(p)) {
+                removed[0] = true;
+            }
+            return queue.isEmpty() ? null : queue;
+        });
+        return removed[0];
     }
 
     // ------------------------------------------------------------------
@@ -188,17 +279,58 @@ public final class Backend {
             callback.accept(Optional.empty());
             return;
         }
-        final Pending p = new Pending(callback);
-        pending.put(player.getUniqueId(), p);
+        final Pending p = new Pending(callback, server.getServerInfo().getName()
+                .toLowerCase(Locale.ROOT));
+        // ⚠️ 排到这个人队列的队尾，别顶掉前面那条（前面那条的 callback 也等着回话）
+        pending.compute(player.getUniqueId(), (key, queue) -> {
+            final Deque<Pending> target = queue == null ? new ArrayDeque<>() : queue;
+            target.add(p);
+            return target;
+        });
         p.timeout = plugin.proxy().getScheduler()
                 .buildTask(plugin, () -> {
-                    // 只有还挂着的是「我这一条」时才回调 —— 期间可能已经有更新的查询顶上了
-                    if (pending.remove(player.getUniqueId(), p)) {
+                    // 只有还挂着的是「我这一条」时才回调 —— 期间可能已经被回包取走了
+                    if (drop(player.getUniqueId(), p)) {
                         callback.accept(Optional.empty());
                     }
                 })
                 .delay(plugin.configuration().bridgeTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .schedule();
+    }
+
+    // ------------------------------------------------------------------
+    // ready 的过期
+    // ------------------------------------------------------------------
+
+    /**
+     * 把太久没回心跳的子服移出 {@link #ready}。
+     *
+     * <p>子服重启 / 桥接被卸载，代理是<b>收不到任何通知</b>的 —— 不主动过期的话这个服会
+     * 永远留在 ready 里，于是坐标照问、落点照发，全都石沉大海（玩家看到的就是「没反应」）。
+     * 移出之后相关请求改走 {@code bridge.missing} 的兜底，比一直假装它有桥接安全。
+     *
+     * <p>阈值取 3 个心跳周期：正常服每一轮心跳都会刷新 {@link #lastPong}，
+     * 偶尔丢一两个包也不会被误判。
+     */
+    public void expireStale() {
+        final long maxAge = Math.max(5L, plugin.configuration().pingIntervalSeconds()) * 3L * 1000L;
+        final long now = System.currentTimeMillis();
+        final List<String> gone = new ArrayList<>();
+        for (final Map.Entry<String, Long> entry : lastPong.entrySet()) {
+            if (now - entry.getValue() <= maxAge) {
+                continue;
+            }
+            final String name = entry.getKey();
+            lastPong.remove(name);
+            if (ready.remove(name)) {
+                versions.remove(name);
+                gone.add(name);
+            }
+        }
+        if (!gone.isEmpty()) {
+            logger.info("[vtpa] 子服 " + String.join("、", gone) + " 已经超过 " + (maxAge / 1000L)
+                    + " 秒没回心跳 —— 视为桥接已离线，相关请求改走 bridge.missing 兜底。");
+        }
     }
 
     // ------------------------------------------------------------------

@@ -16,7 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 传送提示音。格式跟 CMI 的 {@code Sounds:} 段一模一样：{@code 名字:音量:音调}。
  *
- * <p>例（这几个就是线上 CMI 现在用的）：
+ * <p>音量 / 音调是从<b>名字之后</b>开始认的，所以名字可以带命名空间：
+ * {@code minecraft:block.anvil.land:0.5:2}、{@code block.anvil.land:0.5:2}、
+ * {@code block_anvil_land:0.5:2} 三种写法等价。
+ *
  * <pre>
  *   TpaRequest:   block_anvil_land:0.5:2
  *   CommandWarmup: blockrespawnanchorcharge:1:1
@@ -51,13 +54,27 @@ public final class Sounds {
         if (player == null || !player.isOnline() || spec == null || spec.isBlank()) {
             return false;
         }
-        final String[] parts = spec.trim().split(":");
-        final String rawName = parts[0].trim();
+        // ⚠️ 只在前两段之间切「命名空间:名字」—— 后面剩下的才是音量 / 音调。
+        //    直接按 ':' 全切开的话，minecraft:block.anvil.land:1:1 会被切成
+        //    rawName = "minecraft"（一个不存在的声音 → 静默无声）。
+        //    判断依据很简单：第二段能解析成数字，那它是音量；否则它是名字的一部分。
+        final String[] parts = spec.trim().split(":", 3);
+        String rawName = parts[0].trim();
+        String rest = "";
+        if (parts.length > 1) {
+            if (isNumber(parts[1])) {
+                rest = parts.length > 2 ? parts[1] + ":" + parts[2] : parts[1];
+            } else {
+                rawName = parts[0].trim() + ":" + parts[1].trim();
+                rest = parts.length > 2 ? parts[2] : "";
+            }
+        }
         if (rawName.isEmpty()) {
             return false;
         }
-        final float volume = parts.length > 1 ? number(parts[1], 1F) : 1F;
-        final float pitch = parts.length > 2 ? number(parts[2], 1F) : 1F;
+        final String[] volumeAndPitch = rest.isEmpty() ? new String[0] : rest.split(":");
+        final float volume = volumeAndPitch.length > 0 ? number(volumeAndPitch[0], 1F) : 1F;
+        final float pitch = volumeAndPitch.length > 1 ? number(volumeAndPitch[1], 1F) : 1F;
 
         final Location at = player.getLocation();
         final Sound resolved = resolve(rawName);
@@ -172,6 +189,16 @@ public final class Sounds {
             return Float.parseFloat(text.trim());
         } catch (final Exception e) {
             return fallback;
+        }
+    }
+
+    /** 这一段是不是数字 —— 用来分清「名字的第二段」和「音量」。 */
+    private static boolean isNumber(final String text) {
+        try {
+            Float.parseFloat(text.trim());
+            return true;
+        } catch (final Exception e) {
+            return false;
         }
     }
 

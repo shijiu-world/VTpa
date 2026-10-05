@@ -59,6 +59,9 @@ public final class TpaCancelCommand implements SimpleCommand {
             final String name = request.targetName();
             if (name.toLowerCase(Locale.ROOT).startsWith(prefix)) {
                 out.add(name);
+                if (out.size() >= VTpa.MAX_SUGGESTIONS) {
+                    break;
+                }
             }
         }
         return out;

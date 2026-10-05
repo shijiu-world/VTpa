@@ -10,6 +10,7 @@ import com.velocitypowered.api.proxy.Player;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * {@code /tpa <玩家>} —— 请求传送到对方那里。
@@ -54,7 +55,13 @@ public final class TpaCommand implements SimpleCommand {
     public List<String> suggest(final Invocation invocation) {
         final String[] args = invocation.arguments();
         final String prefix = args.length == 1 ? args[0].toLowerCase(Locale.ROOT) : "";
-        return plugin.onlineNames(prefix);
+        // 补出自己没意义（选了就是一句「不能向自己发送请求」），顺便把条数封顶
+        return plugin.onlineNames(prefix, selfId(invocation.source()));
+    }
+
+    /** 补全时要排除的那个 UUID（敲命令的人自己）；不是玩家就不排除。 */
+    static UUID selfId(final CommandSource source) {
+        return source instanceof Player ? ((Player) source).getUniqueId() : null;
     }
 
     /** 权限自己在 execute 里判 —— 没权限的人看到的是"你没权限"，而不是"命令不存在"。 */

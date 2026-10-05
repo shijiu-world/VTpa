@@ -54,6 +54,9 @@ public final class TpaDenyCommand implements SimpleCommand {
             final String name = request.requesterName();
             if (name.toLowerCase(Locale.ROOT).startsWith(prefix)) {
                 out.add(name);
+                if (out.size() >= VTpa.MAX_SUGGESTIONS) {
+                    break;
+                }
             }
         }
         return out;
