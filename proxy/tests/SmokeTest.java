@@ -58,7 +58,7 @@ public class SmokeTest {
                 ((String) map.get("buttons.cancel-command")).contains("/tpacancel"));
         check("顶层快捷命令默认接管 /tpa", map.containsKey("shortcuts.tpa"));
         check("顶层快捷命令默认接管 /tpaccept", map.containsKey("shortcuts.tpaccept"));
-        check("顶层快捷命令默认接管 /tpaall", map.containsKey("shortcuts.tpaall"));
+        check("顶层快捷命令默认接管 /tpall", map.containsKey("shortcuts.tpall"));
         check("顶层快捷命令默认接管 /tpaworld", map.containsKey("shortcuts.tpaworld"));
         check("顶层快捷命令默认接管 /tpaserver", map.containsKey("shortcuts.tpaserver"));
         check("批量请求有各自的汇总文案", map.containsKey("messages.request-sent-world")
@@ -67,6 +67,29 @@ public class SmokeTest {
         check("两个新命令都要专门权限（不是基础节点）",
                 "vtpa.world".equals(cn.shijiu.vtpa.Permissions.WORLD)
                         && "vtpa.server".equals(cn.shijiu.vtpa.Permissions.SERVER));
+
+        // ---- 群发命令改名：/tpaall → /tpall（1.5.0）----
+        check("随包配置里群发子命令的主名是 tpall", map.containsKey("commands.tpall"));
+        check("随包配置里不再有 commands.tpaall 这个键", !map.containsKey("commands.tpaall"));
+        final Configuration bundled = new Probe(map).unwrap();
+        check("顶层注册了 /tpall", "tpall".equals(bundled.shortcuts().get("tpall")));
+        check("旧名 /tpaall 也注册着，且指向 tpall", "tpall".equals(bundled.shortcuts().get("tpaall")));
+        check("/vtpa tpaall 仍然认（老名字留成子命令别名）",
+                bundled.subAliases().getOrDefault("tpall", List.of()).contains("tpaall"));
+        check("用法提示的键跟着改成 usage-tpall", bundled.hasMessage("usage-tpall"));
+        // 老 config.toml 升级上来：三处老键都得自动搬过来，否则命令会凭空消失
+        final Configuration legacyAll = new Probe(TomlLite.parse(
+                "[commands]\ntpaall = [\"tpall\"]\n"
+                        + "[shortcuts]\ntpaall = \"tpaall\"\n"
+                        + "[messages]\nusage-tpaall = \"&7用法：&f#label#\"\n")).unwrap();
+        check("★ 老配置：子命令主名搬到 tpall 下",
+                legacyAll.subAliases().getOrDefault("tpall", List.of()).contains("tpaall"));
+        check("★ 老配置：不再残留 tpaall 这个子命令键", !legacyAll.subAliases().containsKey("tpaall"));
+        check("★ 老配置：顶层 /tpall 被补注册上", "tpall".equals(legacyAll.shortcuts().get("tpall")));
+        check("★ 老配置：顶层 /tpaall 改指 tpall（不会「指向不存在的子命令」）",
+                "tpall".equals(legacyAll.shortcuts().get("tpaall")));
+        check("★ 老配置：用法提示键也搬了（不会显示「缺少配置项」）",
+                legacyAll.hasMessage("usage-tpall"));
 
         // ---- Configuration ----
         final Configuration defaults = Configuration.defaults();
@@ -121,7 +144,9 @@ public class SmokeTest {
         check("提示语缺配置时有兜底", defaults.message("根本没这个键").contains("messages.根本没这个键"));
         check("占位符替换生效", defaults.message("request-sent", "target", "小明", "seconds", "180")
                 .contains("小明"));
-        check("子服没装桥接默认 switch", "switch".equals(defaults.bridgeMissing()));
+        // ⚠️ 别绑死成 switch：默认配置在 4638ec0 里改成了 deny（宁可不送，也不送到莫名其妙的地方），
+        //    改回 switch 的话这条要跟着改
+        check("子服没装桥接默认 deny", "deny".equals(defaults.bridgeMissing()));
         check("桥接通道默认 vtpa:main", "vtpa:main".equals(defaults.bridgeChannel()));
         check("mode 写歪了退回 none", new Probe(TomlLite.parse(
                 "[countdown]\nmode = \"随便写\"\n")).unwrap().countdownMode().equals("none"));

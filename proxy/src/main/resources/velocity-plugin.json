@@ -2,7 +2,7 @@
   "id": "vtpa",
   "name": "VTpa",
   "version": "${project.version}",
-  "description": "跨服传送请求：/tpa /tpahere /tpaall /tpaccept /tpadeny。子服装了 VTpaBridge 才能精确到坐标。",
+  "description": "跨服传送请求：/tpa /tpahere /tpall /tpaccept /tpadeny。子服装了 VTpaBridge 才能精确到坐标。",
   "authors": [
     "拾玖世界"
   ],

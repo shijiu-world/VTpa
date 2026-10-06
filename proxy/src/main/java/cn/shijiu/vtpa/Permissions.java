@@ -14,13 +14,13 @@ import java.util.Locale;
  *   <li><b>基础节点</b>（use / here / accept / deny / cancel / toggle）：受配置
  *       {@code permissions.allow-by-default} 控制 —— 默认 true，也就是服上没配过权限的人
  *       也能正常用传送请求（Velocity 对没配的权限是「未定义」，不是「允许」）。</li>
- *   <li><b>特权节点</b>（{@link #ALL} /tpaall、reload、各种 bypass）：必须显式给，
+ *   <li><b>特权节点</b>（{@link #ALL} /tpall、reload、各种 bypass）：必须显式给，
  *       allow-by-default 对它们无效。默认只有控制台能用。</li>
  * </ul>
  *
  * <pre>
  *   /lp group default permission set vtpa.use true
- *   /lp group vip   permission set vtpa.all true      # 能 /tpaall
+ *   /lp group vip   permission set vtpa.all true      # 能 /tpall
  *   /lp group admin permission set vtpa.* true        # 通配符，全部放通
  * </pre>
  */
@@ -40,7 +40,7 @@ public final class Permissions {
     public static final String TOGGLE = "vtpa.toggle";
     /** 能发给关掉接收的人。 */
     public static final String TOGGLE_BYPASS = "vtpa.toggle.bypass";
-    /** 🔴 /tpaall —— 广播给全服，默认关，必须显式给。 */
+    /** 🔴 /tpall —— 广播给全服，默认关，必须显式给。 */
     public static final String ALL = "vtpa.all";
     /** 🔴 /tpaworld —— 请求「跟我同一个世界」的人传送过来，默认关，必须显式给。 */
     public static final String WORLD = "vtpa.world";

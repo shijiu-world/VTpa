@@ -7,14 +7,14 @@
     <parent>
         <groupId>cn.shijiu</groupId>
         <artifactId>vtpa-parent</artifactId>
-        <version>1.4.0</version>
+        <version>1.5.0</version>
     </parent>
 
     <artifactId>vtpa-proxy</artifactId>
     <packaging>jar</packaging>
 
     <name>VTpa（代理端）</name>
-    <description>跨服 TPA：/tpa /tpahere /tpaall /tpaccept /tpadeny。装在 Velocity 上。</description>
+    <description>跨服 TPA：/tpa /tpahere /tpall /tpaccept /tpadeny。装在 Velocity 上。</description>
 
     <build>
         <finalName>VTpa-${project.version}</finalName>

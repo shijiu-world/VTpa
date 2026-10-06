@@ -239,6 +239,7 @@ public final class Configuration {
                 messages.put(e.getKey().substring("messages.".length()), String.valueOf(e.getValue()));
             }
         }
+        renameMessage(messages, "usage-tpaall", "usage-tpall");
         this.messages = Collections.unmodifiableMap(messages);
 
         this.bridgeChannel = TomlLite.string(m, "bridge.channel", "vtpa:main").trim();
@@ -257,6 +258,7 @@ public final class Configuration {
         }
         final List<String> root = commands.remove("root");
         this.rootAliases = root == null ? Collections.singletonList("vt") : root;
+        renameSubCommand(commands, "tpaall", "tpall");
         this.subAliases = Collections.unmodifiableMap(commands);
 
         // [shortcuts] 段：把某个子命令直接注册成顶层命令（"命令名" = "子命令主名"）
@@ -269,6 +271,7 @@ public final class Configuration {
                 }
             }
         }
+        renameShortcut(sc, "tpaall", "tpall");
         this.shortcuts = Collections.unmodifiableMap(sc);
 
         this.autoReload = TomlLite.bool(m, "advanced.auto-reload", false);
@@ -300,6 +303,62 @@ public final class Configuration {
             return mode;
         }
         return "none";
+    }
+
+    // ------------------------------------------------------------------
+    // 升级兜底：1.5.0 把群发命令 /tpaall 改名成 /tpall
+    //
+    // 老 config.toml 里三处都写着老名字，不搬的话升级完命令会「凭空消失」：
+    //   [commands]  tpaall = [...]       → /vtpa tpaall 变「不存在这个子命令」
+    //   [shortcuts] tpaall = "tpaall"    → 顶层 /tpaall 指不到子命令，被跳过
+    //   [messages]  usage-tpaall         → 用法提示变「(缺少配置项 …)」
+    // 搬完之后老名字一律留作别名，玩家敲哪个都认。
+    // ------------------------------------------------------------------
+
+    /** {@code [commands]}：子命令主名换了，把老键的别名并到新名下。 */
+    private static void renameSubCommand(final Map<String, List<String>> commands,
+                                         final String oldName, final String newName) {
+        final List<String> legacy = commands.remove(oldName);
+        if (legacy == null) {
+            return;
+        }
+        final List<String> current = commands.get(newName);
+        final List<String> merged = new ArrayList<>();
+        if (current != null) {
+            merged.addAll(current);
+        }
+        merged.addAll(legacy);
+        merged.add(oldName);
+        final List<String> clean = new ArrayList<>();
+        for (final String alias : merged) {
+            final String a = alias == null ? "" : alias.trim().toLowerCase(Locale.ROOT);
+            // 空串、跟新主名重名、重复的都丢掉
+            if (!a.isEmpty() && !a.equals(newName) && !clean.contains(a)) {
+                clean.add(a);
+            }
+        }
+        commands.put(newName, clean);
+    }
+
+    /** {@code [shortcuts]}：老键指向的是老子命令名，换成新的；新名字一并注册上。 */
+    private static void renameShortcut(final Map<String, String> sc,
+                                       final String oldName, final String newName) {
+        final String legacy = sc.get(oldName);
+        if (legacy == null) {
+            return;
+        }
+        final String target = oldName.equals(legacy) ? newName : legacy;
+        sc.putIfAbsent(newName, target);
+        sc.put(oldName, target);
+    }
+
+    /** {@code [messages]}：提示语的键名跟着命令走。 */
+    private static void renameMessage(final Map<String, String> messages,
+                                      final String oldKey, final String newKey) {
+        final String legacy = messages.remove(oldKey);
+        if (legacy != null) {
+            messages.putIfAbsent(newKey, legacy);
+        }
     }
 
     /** {@code bridge.missing} 只认 deny / switch，写歪了一律按 deny（宁可不送，也不送到莫名其妙的地方）。 */
@@ -556,7 +615,7 @@ public final class Configuration {
         return requestTpa;
     }
 
-    /** {@code /tpahere}、{@code /tpaall} 发给对方的文本。 */
+    /** {@code /tpahere}、{@code /tpall} 发给对方的文本。 */
     public String requestHere() {
         return requestHere;
     }

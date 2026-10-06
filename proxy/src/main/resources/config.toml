@@ -24,7 +24,7 @@ list = []
 #   true  = 基础节点（use / here / accept / deny / cancel / toggle）默认人人可用
 #   false = 必须去 LuckPerms 显式给，不给就发不出请求
 # ⚠️ 特权节点不受这一项影响，一律要显式给：
-#   vtpa.all（/tpaall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
+#   vtpa.all（/tpall）、vtpa.server、vtpa.world、vtpa.reload、各种 bypass
 # ⚠️ 移动取消【不】看权限：倒计时期间谁动了都取消，OP / 管理员也不例外，
 #    没有任何节点能绕过。想整服关掉只能改下面的 movement.enabled = false。
 #   to-bypass   vtpa.to.bypass（不受下面的 vtpa.to.<服名> 限制）要不要生效
@@ -74,7 +74,7 @@ to-bypass = false
 #                             ⚠️ 没有 bypass 权限 —— 这条就是为了防止骚扰，给了绕过等于没配。
 #                             🔎 跟 cooldown-seconds 是两条独立的机制：
 #                                那条是「发给谁都要隔几秒」，这条是「刚拒我的人在、而且只针对他」。
-#                             ℹ️ /tpaall 这类群发里正处在封锁期的人会被静默跳过（算进 skipped）。
+#                             ℹ️ /tpall 这类群发里正处在封锁期的人会被静默跳过（算进 skipped）。
 #   max-outgoing-requests     一个人最多同时挂着几个「已发出、还没被处理」的请求
 #   allow-cross-server        允许跨服请求（A 在生存、B 在生电也算）
 #   allow-same-server         允许同服请求（两人在同一个子服）
@@ -88,7 +88,7 @@ to-bypass = false
 #                                  两条都是「A 传送到 B」→ 自动同意
 #                               ❌ A 敲 /tpa B → B 也敲 /tpa A（B 想去 A 那儿）
 #                                  结果正好相反 → 不自动同意，B 会收到「已经给你发过请求了」
-#                             ⚠️ 只对单人的 /tpa /tpahere 生效，/tpaall 那类群发不算
+#                             ⚠️ 只对单人的 /tpa /tpahere 生效，/tpall 那类群发不算
 #                                （群发里忽然把人传走太突然，还是让对方自己点）
 # ------------------------------------------------------------
 [general]
@@ -249,7 +249,7 @@ cancel-command = "/tpacancel %player%"
 # 各种提示语。占位符会被自动替换，每条前面会自动拼上下面的 prefix
 #   #player#  另一方名字      #target#   目标玩家名字
 #   #server#  服务器名        #seconds#  秒数
-#   #amount# / #skipped#     /tpaall 发出去多少、跳过了多少
+#   #amount# / #skipped#     /tpall 发出去多少、跳过了多少
 #   #max#     上限            #reason#   失败原因
 #   #label#   玩家实际敲的命令（走 /tpa 就是 /tpa，走 /vtpa tpa 就是 /vtpa tpa）
 # ------------------------------------------------------------
@@ -262,7 +262,7 @@ usage-tpa = "&7用法：&f#label# <玩家>"
 usage-tpaccept = "&7用法：&f#label# [玩家]"
 usage-tpadeny = "&7用法：&f#label# [玩家]"
 usage-tpacancel = "&7用法：&f#label# [玩家]"
-usage-tpaall = "&7用法：&f#label#"
+usage-tpall = "&7用法：&f#label#"
 usage-tpaworld = "&7用法：&f#label#"
 usage-tpaserver = "&7用法：&f#label#"
 usage-tpatoggle = "&7用法：&f#label# [on|off]"
@@ -354,7 +354,8 @@ tpa = []
 tpahere = ["tpask", "tphere"]
 tpaccept = ["tpyes", "tpok"]
 tpadeny = ["tpano", "tpno", "tpdeny"]
-tpaall = ["tpall"]
+# tpall：群发请求。旧名 tpaall 留成别名，敲 /vtpa tpaall 照样认
+tpall = ["tpaall"]
 tpacancel = ["tpcancel"]
 tpatoggle = ["tptoggle"]
 reload = ["rl"]
@@ -378,7 +379,8 @@ tpa = "tpa"
 tpahere = "tpahere"
 tpaccept = "tpaccept"
 tpadeny = "tpadeny"
-tpaall = "tpaall"
+tpall = "tpall"
+tpaall = "tpall"     # 旧名，留着让老玩家敲得动；不想要就删掉这一行（改这里要重启代理）
 tpaworld = "tpaworld"
 tpaserver = "tpaserver"
 tpacancel = "tpacancel"

@@ -5,16 +5,16 @@
 
 ## 一句话定位
 
-跨服 `/tpa` `/tpahere` `/tpaall`。**两个 jar、两个模块**，靠插件消息通信。
+跨服 `/tpa` `/tpahere` `/tpall`。**两个 jar、两个模块**，靠插件消息通信。
 
 - 源码：`D:\Code\mc\plugins\VTpa`（Maven 多模块）
 - 仓库：`git@github.com:shijiu-world/VTpa.git`（**走 SSH**，https 会被本机代理掐断 502）
-- 版本：**1.4.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限；1.4.0 = 被拒绝后的封锁）
+- 版本：**1.5.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限；1.4.0 = 被拒绝后的封锁；1.5.0 = 群发命令 `/tpaall` → `/tpall`）
 
 | 模块 | 产物 | 装哪 | 依赖 |
 |---|---|---|---|
-| `proxy/` | `proxy/target/VTpa-1.4.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
-| `bridge/` | `bridge/target/VTpaBridge-1.4.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
+| `proxy/` | `proxy/target/VTpa-1.5.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
+| `bridge/` | `bridge/target/VTpaBridge-1.5.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
 
 **为什么必须两个**：代理拿不到坐标也挪不动人，它只知道「谁在哪个服」，能做的只有把人从 A 服切到 B 服
 （落到出生点）。要精确到「传到张三脚下」，必须有子服那一半帮忙。
@@ -119,7 +119,7 @@
 1. 🔴 **自动同意走的是 `rejection(..., mutual = true)`** —— 语义上等价于「点了那条请求的接受」，
    被消费掉的是对面先发的那条，**没有新请求产生**，所以冷却 / 对方关接收 / 外出上限 / 重复请求
    这四道「发新请求」的闸全部跳过；子服名单、跨服同服开关、在线、传送中、桥接一个不少。
-2. 🔴 **群发不参与** —— `batchSend()` 传的是 `mutual = false`。`/tpaall` 里忽然把人传走太突然。
+2. 🔴 **群发不参与** —— `batchSend()` 传的是 `mutual = false`。`/tpall` 里忽然把人传走太突然。
 
 ---
 
@@ -127,7 +127,7 @@
 
 判据：**跨服时，被移动的那个人**必须有 `vtpa.to.<落点服>`。节点一律小写，
 **默认全部未定义 = 没授权就拒绝** —— 装好不 grant 的话跨服请求全被拦。
-同服互传不走这套；`/tpaall` 那类群发静默跳过没权限的人。
+同服互传不走这套；`/tpall` 那类群发静默跳过没权限的人。
 
 | 场景 | 谁被移动 | 落点服 | 查谁 |
 |---|---|---|---|
@@ -166,7 +166,7 @@
 3. **故意不做 bypass 权限** —— 这条存在的意义就是防骚扰，给了绕过等于没配。
    ⚠️ 也因此**没有跟 `COOLDOWN_BYPASS` 联动**，别顺手加。
 
-其它：`deny-cooldown-seconds = 0` = 关掉；/tpaall 群发里在封锁期的人走 `rejection()` 的
+其它：`deny-cooldown-seconds = 0` = 关掉；/tpall 群发里在封锁期的人走 `rejection()` 的
 静默跳过（算进 `skipped`）；记录**不落盘**（跟 `lastRequestAt` 一样是内存态，重启即清）；
 到期记录靠 `VTpa` 每秒那趟清扫里的 `purgeDenyCooldowns()` 回收，查询时也会顺手删——
 别删那个调用，否则这张表只增不减。

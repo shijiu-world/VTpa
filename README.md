@@ -1,4 +1,4 @@
-# VTpa —— 跨服传送请求（/tpa /tpahere /tpaall）
+# VTpa —— 跨服传送请求（/tpa /tpahere /tpall）
 
 给「拾玖世界」群组服写的跨服 TPA。玩家在任何子服都能给任何子服的玩家发传送请求，
 对方点一下聊天里的 **[接受]** 就能把人传过去（带 3 秒倒计时，动了就作废）。
@@ -9,8 +9,8 @@
 
 | jar | 装在哪 | 干什么 |
 | --- | --- | --- |
-| `VTpa-1.4.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
-| `VTpaBridge-1.4.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
+| `VTpa-1.5.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
+| `VTpaBridge-1.5.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
 
 ⚠️ 两个 jar **版本要配套**：移动检测是 1.1.0 起才有的协议。子服还停在 1.0.0 时
 不会报错，只是自动退回代理轮询（日志会提示「版本偏老」），但判定会慢半拍。
@@ -37,8 +37,8 @@ PAPI、PAPIProxyBridge 任何东西，也不依赖数据库。
 ./build.sh          # 或：JAVA_HOME=... mvn -B -o package
 
 # 2. 丢 jar
-proxy/target/VTpa-1.4.0.jar          → 代理的 plugins/
-bridge/target/VTpaBridge-1.4.0.jar   → 每个要参与的子服的 plugins/
+proxy/target/VTpa-1.5.0.jar          → 代理的 plugins/
+bridge/target/VTpaBridge-1.5.0.jar   → 每个要参与的子服的 plugins/
 
 # 3. 重启（子服和代理都要重启），会自动生成 plugins/vtpa/config.toml
 # 4. 改配置后 /vtpa reload（需要 vtpa.reload）
@@ -59,7 +59,7 @@ bridge/target/VTpaBridge-1.4.0.jar   → 每个要参与的子服的 plugins/
 | --- | --- |
 | `/tpa <玩家>` | 请求**传送到对方那里**（动的是我） |
 | `/tpahere <玩家>` | 请求**对方传送到我这儿**（动的是对方） |
-| `/tpaall` | 请求**全服在线玩家**传送到我这儿（要 `vtpa.all` 权限） |
+| `/tpall` | 请求**全服在线玩家**传送到我这儿（要 `vtpa.all` 权限；1.5.0 前叫 `/tpaall`，旧名仍可用） |
 | `/tpaccept [玩家]` | 接受请求。有多条待处理时不写名字会让你选一个 |
 | `/tpadeny [玩家]` | 拒绝请求 |
 | `/tpacancel [玩家]` | 撤回我发出去的请求（不用干等 3 分钟） |
@@ -90,7 +90,7 @@ vtpa.accept     /tpaccept
 vtpa.deny       /tpadeny
 vtpa.cancel     /tpacancel
 vtpa.toggle     /tpatoggle
-vtpa.all        🔴 /tpaall —— 必须显式给，allow-by-default 对它无效
+vtpa.all        🔴 /tpall —— 必须显式给，allow-by-default 对它无效
 vtpa.reload     /vtpa reload
 vtpa.toggle.bypass    能发给关掉接收的人
 vtpa.cooldown.bypass  不受发起冷却
@@ -123,7 +123,7 @@ vtpa.to.bypass        🔴 不受下面那套 vtpa.to.<服名> 限制
 | 阿乙在 industry，`/tpahere 阿甲`（阿甲在 survival） | 阿甲 | industry | 还是**阿甲**要有 `vtpa.to.industry` |
 
 - **同服不走这套**：两人本来就在同一个子服互传，不需要任何 `vtpa.to.*` 节点。
-- `/tpaall` `/tpaserver` `/tpaworld` 群发时，没有权限的人会被**静默跳过**（不会刷屏）。
+- `/tpall` `/tpaserver` `/tpaworld` 群发时，没有权限的人会被**静默跳过**（不会刷屏）。
 - 有 `vtpa.*` 或 `*` 通配符的人对这套节点一律算「有」—— 想让管理员也受控就别发通配符。
 
 ```bash
@@ -188,7 +188,7 @@ vtpa.to.bypass        🔴 不受下面那套 vtpa.to.<服名> 限制
   它等价于「点了那条请求的接受」，并没有新请求产生（对方是主动的那一方，不该被他自己的
   「关了接收」挡住）。但**传送本身那几道闸一个不少**：子服名单、跨服/同服开关、
   人在不在线、有没有人正在倒计时、落点那个服装没装桥接 —— 任一条不过就退回普通提示，不会偷偷传走人。
-- 只作用于单人的 `/tpa` `/tpahere`。`/tpaall` `/tpaserver` `/tpaworld` 这些群发**不参与**
+- 只作用于单人的 `/tpa` `/tpahere`。`/tpall` `/tpaserver` `/tpaworld` 这些群发**不参与**
   —— 群发里忽然把人传走太突然，还是让对方自己点。
 - 不用额外权限：两边本来就各自表达过同一个意思，不存在谁替谁同意。
 - 想关掉就设 `general.reverse-auto-accept = false`，退回「他已经给你发过请求了」。
@@ -224,7 +224,7 @@ vtpa.to.bypass        🔴 不受下面那套 vtpa.to.<服名> 限制
 | 跨服切服失败（服满 / 被拦） | 「传送失败：<状态>」，落点作废，不会乱传 |
 | 切服最终落到别的服 | 落点作废并打 WARN，不会把坐标用在错误的服上 |
 | 点了按钮但请求已经没了 | 「你没有待处理的传送请求」 |
-| `/tpaall` 遇到不合适的人 | 静默跳过，最后只回一条「发出 N 条，跳过 M 名」 |
+| `/tpall` 遇到不合适的人 | 静默跳过，最后只回一条「发出 N 条，跳过 M 名」 |
 | 控制台敲 /tpa | 「这条命令只有玩家能用」 |
 | config.toml 写错了 | **保留旧配置**并 WARN，绝不让插件变成半成品 |
 
@@ -331,7 +331,7 @@ deny-cooldown = "&e你接下来的 &6#seconds# &e秒内无法发送请求到 &6#
 | 情况 | 处理 |
 | --- | --- |
 | 阿甲 → 阿乙 被拒 | 只封**这一个方向**：阿甲照样能找别人，**阿乙也照样能找阿甲** |
-| 阿甲 /tpaall 群发 | 封锁期里的人**静默跳过**（算进汇总的「跳过 N 名」），不会每人弹一条 |
+| 阿甲 /tpall 群发 | 封锁期里的人**静默跳过**（算进汇总的「跳过 N 名」），不会每人弹一条 |
 | 阿乙反过来先找阿甲（互相请求那条路） | 不拦 —— 人家是主动的那方，跟已被点接受的语义一样 |
 | `deny-cooldown-seconds = 0` | 关掉这道闸，被拒多少次都能立刻重发 |
 | 想给特权组放行 | ❌ **没有 bypass 权限** —— 这条就是防骚扰用的，给了绕过等于没配 |
@@ -431,10 +431,22 @@ tpa = "tpa"
 tpahere = "tpahere"
 tpaccept = "tpaccept"
 tpadeny = "tpadeny"
-tpaall = "tpaall"
+tpall = "tpall"
+tpaall = "tpall"     # 旧名（1.5.0 起改名），留着让老玩家敲得动；删掉就只剩 /tpall
 tpacancel = "tpacancel"
 tpatoggle = "tpatoggle"
 ```
+
+改名的部分（1.5.0 起群发命令叫 `/tpall`，旧名 `/tpaall` 默认仍保留）：
+
+```toml
+[commands]           # /vtpa 后面的那个词；旧名在这里留成别名
+tpall = ["tpaall"]
+```
+
+> 升级上来的老 `config.toml` 不用手改 —— 插件会把 `commands.tpaall` /
+> `shortcuts.tpaall` / `messages.usage-tpaall` 三处自动搬到新名下，
+> 老名字照样能用。想彻底去掉旧名，把上面 `tpaall` 那两行删掉再重启代理。
 
 ---
 
@@ -442,7 +454,7 @@ tpatoggle = "tpatoggle"
 
 ```bash
 ./build.sh        # 构建两个 jar（离线，依赖都在 ~/.m2）
-./run-tests.sh    # 154 条断言：TOML / 配置 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设
+./run-tests.sh    # 218 条断言：TOML / 配置 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设
                   #             / 空文本不发送 / 声音 / 版本协商 / 新增的 4 个 opcode
 ```
 

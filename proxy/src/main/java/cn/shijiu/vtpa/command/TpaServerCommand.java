@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * {@code /tpaserver} —— 给「跟我同一个子服」的所有在线玩家发一条「传送到我这儿」。
  *
- * <p>相当于 {@code /tpaall} 缩到当前子服：跨服的服不打扰。
+ * <p>相当于 {@code /tpall} 缩到当前子服：跨服的服不打扰。
  * 🔴 特权命令，要 {@code vtpa.server}（必须显式给，{@code allow-by-default} 对它无效）。
  */
 public final class TpaServerCommand implements SimpleCommand {

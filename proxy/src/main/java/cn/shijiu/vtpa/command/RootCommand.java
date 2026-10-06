@@ -65,7 +65,7 @@ public final class RootCommand implements SimpleCommand {
                 Permissions.CANCEL, true);
         add("tpatoggle", new TpaToggleCommand(plugin), "tpatoggle [on|off]", "开关接收别人的请求",
                 Permissions.TOGGLE, true);
-        add("tpaall", new TpaAllCommand(plugin), "tpaall", "请求全服玩家传送到我这儿",
+        add("tpall", new TpaAllCommand(plugin), "tpall", "请求全服玩家传送到我这儿",
                 Permissions.ALL, false);
         add("tpaworld", new TpaWorldCommand(plugin), "tpaworld", "请求同世界的玩家传送到我这儿",
                 Permissions.WORLD, false);

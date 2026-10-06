@@ -41,8 +41,8 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "vtpa",
         name = "VTpa",
-        version = "1.4.0",
-        description = "跨服传送请求：/tpa /tpahere /tpaall /tpaccept /tpadeny",
+        version = "1.5.0",
+        description = "跨服传送请求：/tpa /tpahere /tpall /tpaccept /tpadeny",
         authors = {"拾玖世界"}
 )
 public final class VTpa {
@@ -84,7 +84,7 @@ public final class VTpa {
         startAutoReload();
 
         logger.info("[vtpa] VTpa 已就绪 —— 命令 " + config.label()
-                + " tpa / tpahere / tpaccept / tpadeny / tpaall。"
+                + " tpa / tpahere / tpaccept / tpadeny / tpall。"
                 + "子服记得装 VTpaBridge，不然只能切服、不能落到具体位置。");
     }
 

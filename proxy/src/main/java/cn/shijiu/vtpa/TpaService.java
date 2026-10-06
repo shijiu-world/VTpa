@@ -138,7 +138,7 @@ public final class TpaService {
      * 检查「发起者能不能给目标发一条请求」，返回 null 表示可以发，
      * 否则返回要提示给发起者的那条消息的 key（以及要替换的占位符）。
      *
-     * <p>单独拆出来是为了 {@code /tpaall} 复用 —— 它要静默跳过不合适的人，
+     * <p>单独拆出来是为了 {@code /tpall} 复用 —— 它要静默跳过不合适的人，
      * 不能每人弹一条提示。
      *
      * @param mutual 走「互相请求直接同意」那条路时为 true。语义上它等价于
@@ -189,7 +189,7 @@ public final class TpaService {
             final String targetServer = Backend.serverName(target);
             final boolean selfOk = config.filter().allows(selfServer);
             final boolean targetOk = config.filter().allows(targetServer);
-            // 名单是空的时候（= 全参与）没什么可看的，别在 /tpaall 里刷一屏
+            // 名单是空的时候（= 全参与）没什么可看的，别在 /tpall 里刷一屏
             if (config.debug() && !config.filter().servers().isEmpty()) {
                 plugin.logger().info("[vtpa] 子服名单检查：" + requester.getUsername() + " @"
                         + (selfServer == null ? "?" : selfServer) + (selfOk ? " ✅" : " ❌")
@@ -450,7 +450,7 @@ public final class TpaService {
     }
 
     /**
-     * {@code /tpaall} —— 给所有在线玩家发一条「传送到我这儿」的请求。
+     * {@code /tpall} —— 给所有在线玩家发一条「传送到我这儿」的请求。
      *
      * <p>不合适的人（自己、名单外的服、关了接收、已经挂着一个请求的、正在传送的）
      * 一律静默跳过，最后只给发起者一条汇总，免得刷屏。
@@ -458,7 +458,7 @@ public final class TpaService {
     public void sendToAll(final Player requester) {
         final List<Player> everyone = new ArrayList<>(proxy().getAllPlayers());
         everyone.removeIf(p -> p.getUniqueId().equals(requester.getUniqueId()));
-        batchSend(requester, everyone, "request-sent-all", "tpaall");
+        batchSend(requester, everyone, "request-sent-all", "tpall");
     }
 
     /**
@@ -534,7 +534,7 @@ public final class TpaService {
     /**
      * 批量发「传送到我这儿」：不合适的人静默跳过，最后只回一条汇总（免得刷屏）。
      *
-     * <p>{@code /tpaall}、{@code /tpaserver}、{@code /tpaworld} 三条共用这一段。
+     * <p>{@code /tpall}、{@code /tpaserver}、{@code /tpaworld} 三条共用这一段。
      */
     private void batchSend(final Player requester, final Collection<Player> targets,
                            final String summaryKey, final String logName) {
