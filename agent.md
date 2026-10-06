@@ -9,12 +9,12 @@
 
 - 源码：`D:\Code\mc\plugins\VTpa`（Maven 多模块）
 - 仓库：`git@github.com:shijiu-world/VTpa.git`（**走 SSH**，https 会被本机代理掐断 502）
-- 版本：**1.3.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限）
+- 版本：**1.4.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限；1.4.0 = 被拒绝后的封锁）
 
 | 模块 | 产物 | 装哪 | 依赖 |
 |---|---|---|---|
-| `proxy/` | `proxy/target/VTpa-1.3.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
-| `bridge/` | `bridge/target/VTpaBridge-1.3.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
+| `proxy/` | `proxy/target/VTpa-1.4.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
+| `bridge/` | `bridge/target/VTpaBridge-1.4.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
 
 **为什么必须两个**：代理拿不到坐标也挪不动人，它只知道「谁在哪个服」，能做的只有把人从 A 服切到 B 服
 （落到出生点）。要精确到「传到张三脚下」，必须有子服那一半帮忙。
@@ -37,11 +37,11 @@
 
 | 文件 | 行 | 职责 | 备注 |
 |---|---|---|---|
-| `VTpa.java` | 395 | 主类。注册命令/快捷命令、调度清扫、自动重载、toggles 落盘 | `onServerPostConnect` 处理切服后的坐标下发 |
-| `TpaService.java` | 803 | **业务核心**：闸门检查（`rejection()`）、互相请求自动同意（`mutualPending()`）、accept/deny/cancel/expire、请求消息构建 | 🔴 `rejection()` 是那张 20 多条边界情况清单的实现，改它等于改玩家体验 |
+| `VTpa.java` | 436 | 主类。注册命令/快捷命令、调度清扫、自动重载、toggles 落盘 | `onServerPostConnect` 处理切服后的坐标下发；每秒清扫顺带 `service.purgeDenyCooldowns()` |
+| `TpaService.java` | 957 | **业务核心**：闸门检查（`rejection()`）、互相请求自动同意（`mutualPending()`）、被拒后封锁（`markDenied()` / `denyRemaining()`）、accept/deny/cancel/expire、请求消息构建 | 🔴 `rejection()` 是那张 20 多条边界情况清单的实现，改它等于改玩家体验 |
 | `Teleporter.java` | 651 | **传送核心**：倒计时、移动检测、锁落点、切服、落地 | 最复杂的类，见下面「传送的一生」 |
 | `Backend.java` | 377 | 对子服的一切：插件消息收发、坐标查询、特效、声音、watch、**版本协商** | `supports(server, 1,1,0)` 判断子服能力 |
-| `Configuration.java` | 762 | 全部配置读取 | 含 `parseFx()`：粒子预设串写坏只跳那个参数并在起服日志 WARN；`hasMessage()` 给加新的提示语做升级兜底 |
+| `Configuration.java` | 791 | 全部配置读取 | 含 `parseFx()`：粒子预设串写坏只跳那个参数并在起服日志 WARN；`hasMessage()` 给加新的提示语做升级兜底 |
 | `RequestStore.java` | 153 | 请求账本：按双方查、按人查、过期清扫 | `findBetween(a,b)` 保证两人之间只有一条 |
 | `TpaRequest.java` | 129 | 不可变请求对象 | `moverId()`/`destinationId()`/`sameOutcomeAs()` = 「两条请求结果是不是一样」，互相请求判定靠它；`other()` 语义见 `RequestType` |
 | `RequestType.java` | 22 | 枚举，`movesRequester()` 判断动的是谁 | tpa=动我，tpahere=动对方 |
@@ -151,6 +151,28 @@
 
 ---
 
+## 🔒 被拒绝之后的封锁（1.4.0 起）
+
+`TpaService.deny()` 里 `markDenied(请求发起人, 拒了他的那个人)` → 从此刻起
+`general.deny-cooldown-seconds`（**默认 300 秒**）内，`rejection()` 会直接把这个方向拦下，
+返回 `"deny-cooldown:<剩余秒>"`，提示语是 `messages.deny-cooldown`。
+
+三条定死的语义（改之前想清楚）：
+
+1. **只锁方向** —— key 是 `(requester, target)` 有序对。阿甲被阿乙拒绝，不影响阿甲找别人，
+   更不影响阿乙找阿甲（同 prefer Ziel: 这是防"盯一个人反复戳"，不是禁言）。
+2. **互相请求（mutual）跳过这道闸** —— 跟 `cooldown` / `target-disabled` 一个道理：
+   那条挂着的请求正是对方主动发过来的，他是想要的那方，拿"你刚被他拒过"把人挡回去很莫名其妙。
+3. **故意不做 bypass 权限** —— 这条存在的意义就是防骚扰，给了绕过等于没配。
+   ⚠️ 也因此**没有跟 `COOLDOWN_BYPASS` 联动**，别顺手加。
+
+其它：`deny-cooldown-seconds = 0` = 关掉；/tpaall 群发里在封锁期的人走 `rejection()` 的
+静默跳过（算进 `skipped`）；记录**不落盘**（跟 `lastRequestAt` 一样是内存态，重启即清）；
+到期记录靠 `VTpa` 每秒那趟清扫里的 `purgeDenyCooldowns()` 回收，查询时也会顺手删——
+别删那个调用，否则这张表只增不减。
+
+---
+
 ## 铁律（改之前先背）
 
 1. 🔴 **`Wire.java` 和 `FxSpec.java` 只改 `proxy/` 那份**，然后跑 `build.sh` 同步。手改 bridge 那份会被覆盖。
@@ -174,11 +196,12 @@
 | 想改什么 | 改哪 | 连带要动 |
 |---|---|---|
 | 加协议指令 | `proxy/Wire.java` → 跑 `build.sh` 同步 | `Backend.java` 发、`bridge/VTpaBridge.onPluginMessageReceived()` 收、版本号、`run-tests.sh` 断言 |
-| 加配置项 | `proxy/Configuration.java` + `proxy/src/main/resources/config.toml` | README 表格、`VTpa.reportConfig()`（起服日志会把关键配置全打一遍） |
-| 改边界/提示语 | `TpaService.rejection()` + `config.toml` 的 `[messages]` | README「完整边界情况清单」表格 |
+| 加配置项 | `proxy/Configuration.java` + `proxy/src/main/resources/config.toml` | README 表格、`VTpa.reportConfig()`（起服日志会把关键配置全打一遍）；设置算一个新默认值时同步 `proxy/tests/SmokeTest.java`（它要断言「随包配置里必须显式写出这个键」） |
+| 改边界/提示语 | `TpaService.rejection()` + `config.toml` 的 `[messages]`（新原因要在 `sendRejection()` 里加 case） | README「完整边界情况清单」表格 |
+| 改「被拒绝后的封锁」 | `TpaService.markDenied()`（在 `deny()` 里记录）+ `denyRemaining()` + `rejection()` 里那道闸 | `general.deny-cooldown-seconds`、`messages.deny-cooldown`、README 3.1 节、`VTpa` 每秒清扫里的 `purgeDenyCooldowns()` |
 | 改「能进哪个服」的权限 | `Permissions.travelNode()`（拼节点）+ `mayTravelTo()`（判定） | 🔴 三处调用点：`TpaService.rejection()` / `TpaService.accept()` / `Teleporter.finish()`；`permissions.to-bypass`、`vtpa.to.bypass`、两条 `messages.travel-denied-*` |
 | 改「互相请求」判定 | `TpaRequest.sameOutcomeAs()`（纯数据）+ `TpaService.mutualPending()` | `general.reverse-auto-accept`、两条 `mutual-accept-*` 提示语、README 那张四格表 |
-| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 201 条断言 + 实机 |
+| 改传送流程 | `Teleporter.java` | 最脆的部分，改完必须跑满 208 条断言 + 实机 |
 | 改粒子语法 | `proxy/FxSpec.java` → `build.sh` 同步 → `bridge/Particles.java` 消费 | 语法兼容 CMI，改了要回头对一遍 |
 | 改移动判定 | `bridge/Watcher.java`（子服）+ `Teleporter.onMoved()`（代理） | `WATCH_IGNORE_Y` flag、`tolerance`、`cancel-on-world-change` |
 
@@ -189,7 +212,7 @@
 ```bash
 cd D:/Code/mc/plugins/VTpa
 ./build.sh        # 同步 Wire/FxSpec → 构建两个 jar（离线，依赖都在 ~/.m2）
-./run-tests.sh    # 201 条断言
+./run-tests.sh    # 208 条断言
 ```
 
 要求 JDK 17+（`--release 17` 编译，Velocity 3.4~4.x / Paper 都跑得动）、Maven 3.9。

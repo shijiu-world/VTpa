@@ -65,6 +65,16 @@ to-bypass = false
 #   request-timeout-seconds   请求多久没人理就自动作废（默认 180 秒 = 3 分钟）
 #   teleport-delay-seconds    对方同意之后，倒计多少秒才真正传送（默认 3 秒）
 #   cooldown-seconds          两次发起请求之间隔多久（秒）。0 = 不限
+#   deny-cooldown-seconds     请求被【拒绝】之后，隔多久才能再给【那一个人】发（秒）。
+#                             默认 300 秒（5 分钟），0 = 不限（被拒多少次都能立刻重发）。
+#                             ★ 这是为了挡住「拒绝之后反复戳同一个人」：
+#                               阿甲被阿乙拒绝 → 5 分钟内阿甲发给阿乙的请求会被拦下，
+#                               提示 messages.deny-cooldown。
+#                             ⚠️ 只锁【这一个方向】：阿甲照样能找别人，阿乙也照样能找阿甲。
+#                             ⚠️ 没有 bypass 权限 —— 这条就是为了防止骚扰，给了绕过等于没配。
+#                             🔎 跟 cooldown-seconds 是两条独立的机制：
+#                                那条是「发给谁都要隔几秒」，这条是「刚拒我的人在、而且只针对他」。
+#                             ℹ️ /tpaall 这类群发里正处在封锁期的人会被静默跳过（算进 skipped）。
 #   max-outgoing-requests     一个人最多同时挂着几个「已发出、还没被处理」的请求
 #   allow-cross-server        允许跨服请求（A 在生存、B 在生电也算）
 #   allow-same-server         允许同服请求（两人在同一个子服）
@@ -85,6 +95,7 @@ to-bypass = false
 request-timeout-seconds = 180
 teleport-delay-seconds = 3
 cooldown-seconds = 5
+deny-cooldown-seconds = 300
 max-outgoing-requests = 3
 allow-cross-server = true
 allow-same-server = true
@@ -224,7 +235,7 @@ here = "&6%player% &e请求你传送到他那里! #accept# #deny#"
 # 因为撤回要说清楚撤回发给谁的那个。
 # ------------------------------------------------------------
 [buttons]
-accept-text = "&a&l[✔]"
+accept-text = "&2&l[✔]"
 accept-hover = "&aAccept"
 accept-command = "/tpaccept %player%"
 deny-text = "&c&l[X]"
@@ -260,6 +271,7 @@ ambiguous-target = "&6#target# &e有多个人名匹配，多打几个字"
 target-connecting = "&6#target# &e还在登录中，请稍后重试"
 self-request = "&c不能向自己发送传送请求"
 cooldown = "&e慢一点，还要 &6#seconds# &c秒"
+deny-cooldown = "&e你接下来的 &6#seconds# &e秒内无法发送请求到 &6#player#"
 server-denied-self = "&e你所在的服务器 &6#server# &e不能使用传送请求"
 server-denied-target = "&6#target# &e所在的服务器不能使用传送请求"
 # 「传送到某个子服」的权限 vtpa.to.<服名>（只查跨服，节点的默认值是未定义 = 拒绝）

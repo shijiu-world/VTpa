@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "vtpa",
         name = "VTpa",
-        version = "1.3.0",
+        version = "1.4.0",
         description = "跨服传送请求：/tpa /tpahere /tpaall /tpaccept /tpadeny",
         authors = {"拾玖世界"}
 )
@@ -195,6 +195,8 @@ public final class VTpa {
                 if (!expired.isEmpty()) {
                     service.expire(expired);
                 }
+                // 顺手把到期的「被拒绝封锁」记录清掉（不清也不影响功能，只是白占内存）
+                service.purgeDenyCooldowns();
             } catch (final Exception e) {
                 logger.warn("[vtpa] 清扫过期请求时出错（这一轮跳过，任务继续）：" + e);
             }
@@ -264,7 +266,9 @@ public final class VTpa {
     private void reportConfig() {
         final Configuration.ServerFilter filter = config.filter();
         logger.info("[vtpa] 请求时效 " + config.requestTimeoutSeconds() + " 秒，同意后倒计时 "
-                + config.teleportDelaySeconds() + " 秒，发起冷却 " + config.cooldownSeconds() + " 秒");
+                + config.teleportDelaySeconds() + " 秒，发起冷却 " + config.cooldownSeconds()
+                + " 秒，被拒绝后 " + config.denyCooldownSeconds()
+                + " 秒内不能再发给同一人（0 = 不限）");
         logger.info("[vtpa] 子服名单：" + (filter.isWhitelist() ? "白名单" : "黑名单")
                 + (filter.servers().isEmpty() ? "（空 = 全都参与）" : " " + String.join(", ", filter.servers())));
         logger.info("[vtpa] 跨服请求：" + (config.allowCrossServer() ? "开" : "关")

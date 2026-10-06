@@ -9,8 +9,8 @@
 
 | jar | 装在哪 | 干什么 |
 | --- | --- | --- |
-| `VTpa-1.3.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
-| `VTpaBridge-1.3.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
+| `VTpa-1.4.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
+| `VTpaBridge-1.4.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
 
 ⚠️ 两个 jar **版本要配套**：移动检测是 1.1.0 起才有的协议。子服还停在 1.0.0 时
 不会报错，只是自动退回代理轮询（日志会提示「版本偏老」），但判定会慢半拍。
@@ -37,8 +37,8 @@ PAPI、PAPIProxyBridge 任何东西，也不依赖数据库。
 ./build.sh          # 或：JAVA_HOME=... mvn -B -o package
 
 # 2. 丢 jar
-proxy/target/VTpa-1.3.0.jar          → 代理的 plugins/
-bridge/target/VTpaBridge-1.3.0.jar   → 每个要参与的子服的 plugins/
+proxy/target/VTpa-1.4.0.jar          → 代理的 plugins/
+bridge/target/VTpaBridge-1.4.0.jar   → 每个要参与的子服的 plugins/
 
 # 3. 重启（子服和代理都要重启），会自动生成 plugins/vtpa/config.toml
 # 4. 改配置后 /vtpa reload（需要 vtpa.reload）
@@ -201,6 +201,7 @@ vtpa.to.bypass        🔴 不受下面那套 vtpa.to.<服名> 限制
 | 名字打错 / 有多个人匹配 | 「找不到在线玩家」/「有多个人名匹配，多打几个字」 |
 | 对方还在登录中（没进任何服） | 「还在登录中，等他进服了再试」 |
 | 冷却中 | 「慢一点，还要 N 秒」（有 bypass 权限的不受影响） |
+| 刚被**对方拒绝**、还在封锁期 | 「你接下来的 N 秒内无法发送请求到 XX」（`general.deny-cooldown-seconds`，默认 300 秒，见下） |
 | 自己或对方在不允许的子服 | 「你所在的服务器（xxx）不能使用传送请求」/「xxx 所在的服务器不能使用传送请求」 |
 | 关了跨服 / 同服 | 「没有开启跨服传送请求」/「没有开启同服传送请求」 |
 | 跨服、但我（要过去的人）没有 vtpa.to.<对方所在的服> | 我自己发起 →「你没有权限传送到 X 服务器」；`/tpahere` 叫对方过来、对方没权限 →「某某没有权限传送到 X 服务器」 |
@@ -286,6 +287,7 @@ mutual-accept-dest  = "&a双方都同意了 —— &6#player# &a会在 &6#second
 request-timeout-seconds = 180      # 请求 3 分钟没人理就作废
 teleport-delay-seconds  = 3        # 同意后倒数 3 秒
 cooldown-seconds        = 5        # 两次发起之间隔 5 秒，0 = 不限
+deny-cooldown-seconds   = 300      # 被拒绝后 300 秒内不能再发给【那个人】，0 = 不限
 max-outgoing-requests   = 3        # 一个人最多同时挂 3 个未处理的
 allow-cross-server      = true
 allow-same-server       = true
@@ -314,6 +316,28 @@ cancel-on-world-change = true
 CMI 也是这么干的。子服桥接版本 < 1.1.0 时会自动退回轮询，日志里会说。
 
 ⚠️ 子服没装桥接时这一项自动失效（等于不检测）—— 宁可不拦，也不能把站着不动的人判成动了。
+
+### 3.1 被拒绝之后的封锁（防反复骚扰）
+
+阿甲给阿乙发请求、阿乙点了拒绝 → **5 分钟**（`general.deny-cooldown-seconds`，默认 300）
+内阿甲不能再给阿乙发请求，会被直接拦下并收到：
+
+```
+deny-cooldown = "&e你接下来的 &6#seconds# &e秒内无法发送请求到 &6#player#"
+```
+
+几条要紧的边界：
+
+| 情况 | 处理 |
+| --- | --- |
+| 阿甲 → 阿乙 被拒 | 只封**这一个方向**：阿甲照样能找别人，**阿乙也照样能找阿甲** |
+| 阿甲 /tpaall 群发 | 封锁期里的人**静默跳过**（算进汇总的「跳过 N 名」），不会每人弹一条 |
+| 阿乙反过来先找阿甲（互相请求那条路） | 不拦 —— 人家是主动的那方，跟已被点接受的语义一样 |
+| `deny-cooldown-seconds = 0` | 关掉这道闸，被拒多少次都能立刻重发 |
+| 想给特权组放行 | ❌ **没有 bypass 权限** —— 这条就是防骚扰用的，给了绕过等于没配 |
+
+> 跟 `cooldown-seconds`（两次发起之间隔几秒、对**所有人**生效、有 `vtpa.cooldown.bypass`）
+> 是两条独立的机制：那条防手抖连点，这条防盯一个人反复戳。
 
 ### 3.5 声音（移植自 CMI 的 `Sounds:` 段）
 

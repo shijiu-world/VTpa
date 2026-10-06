@@ -38,6 +38,15 @@ public final class TpaService {
     private final Map<UUID, Long> lastRequestAt = new ConcurrentHashMap<>();
     /** 关掉了「接收别人的请求」的玩家。 */
     private final Map<UUID, Boolean> toggledOff = new ConcurrentHashMap<>();
+    /** 被拒绝之后的封锁：key = 「谁」不能再发给「谁」，value = 解封的时间戳（毫秒）。 */
+    private final Map<DenyKey, Long> denyUntil = new ConcurrentHashMap<>();
+
+    /**
+     * 「谁被谁拒绝过」这条记录的键 —— <b>有方向</b>：
+     * 阿甲被阿乙拒绝，封的是「阿甲 → 阿乙」这一条，反过来不受影响。
+     */
+    private record DenyKey(UUID requester, UUID target) {
+    }
 
     public TpaService(final VTpa plugin) {
         this.plugin = plugin;
@@ -76,6 +85,52 @@ public final class TpaService {
     }
 
     // ------------------------------------------------------------------
+    // 被拒绝之后的封锁（general.deny-cooldown-seconds）
+    // ------------------------------------------------------------------
+
+    /**
+     * 记一次拒绝：从现在起 {@code deny-cooldown-seconds} 秒内，
+     * 这个人不能再给<b>拒绝他的那个人</b>发请求。
+     *
+     * <p>⚠️ 只锁「这一条路」：阿甲被阿乙拒绝 → 只有阿甲发给阿乙被拦，
+     * 阿甲找别人、阿乙找阿甲都不受影响（就是为了让被拒绝的人别去反复戳同一个人）。
+     */
+    private void markDenied(final UUID requester, final UUID target) {
+        final long seconds = config().denyCooldownSeconds();
+        if (seconds <= 0) {
+            return;
+        }
+        denyUntil.put(new DenyKey(requester, target),
+                System.currentTimeMillis() + seconds * 1000L);
+    }
+
+    /**
+     * 这个人还在「被对方拒绝」的封锁期里吗。
+     *
+     * @return 还剩多少秒（向上取整 —— 只剩 0.4 秒也算「还剩 1 秒」，免得提示刚出来就过期）；
+     *         没被锁 / 已经到期 → 0
+     */
+    private long denyRemaining(final UUID requester, final UUID target) {
+        final DenyKey key = new DenyKey(requester, target);
+        final Long until = denyUntil.get(key);
+        if (until == null) {
+            return 0L;
+        }
+        final long left = until - System.currentTimeMillis();
+        if (left <= 0) {
+            denyUntil.remove(key);
+            return 0L;
+        }
+        return (left + 999L) / 1000L;
+    }
+
+    /** 清掉已经到期的封锁记录 —— 每秒那趟清扫顺手做一次，免得这张表只增不减。 */
+    public void purgeDenyCooldowns() {
+        final long now = System.currentTimeMillis();
+        denyUntil.values().removeIf(until -> until <= now);
+    }
+
+    // ------------------------------------------------------------------
     // 发请求
     // ------------------------------------------------------------------
 
@@ -101,6 +156,17 @@ public final class TpaService {
 
         if (requesterId.equals(targetId)) {
             return "self-request";
+        }
+
+        // 被【这个人】拒绝过，还在封锁期里
+        // ⚠️ 互相请求时不查：那条挂着的请求正是对方主动发过来的（他明明是想要的那方），
+        //    这时候拿「你刚被他拒绝过」把人挡回去会很莫名其妙 —— 跟下面 target-disabled 一个道理
+        // ⚠️ 也不设 bypass 权限：这条就是为了防止反复骚扰，给了绕过等于没配
+        if (!mutual) {
+            final long deniedLeft = denyRemaining(requesterId, targetId);
+            if (deniedLeft > 0) {
+                return "deny-cooldown:" + deniedLeft;
+            }
         }
 
         // 冷却（⚠️ 互相请求不产生新请求，所以不算「又一次发起」，不卡冷却）
@@ -356,6 +422,11 @@ public final class TpaService {
         switch (key) {
             case "cooldown":
                 plugin.send(requester, config.message("cooldown", "seconds", extra));
+                return;
+            case "deny-cooldown":
+                // #player# / #target# 都是「刚才拒绝我的那个人」，#seconds# 是还剩多久解封
+                plugin.send(requester, config.message("deny-cooldown", "seconds", extra,
+                        "player", targetName, "target", targetName));
                 return;
             case "server-denied-self":
                 plugin.send(requester, config.message("server-denied-self", "server", extra));
@@ -632,6 +703,8 @@ public final class TpaService {
             return;
         }
         store().remove(request);
+        // 从此刻起一段时间内，对方不能再给【我】发请求（时长 general.deny-cooldown-seconds）
+        markDenied(request.requesterId(), viewer.getUniqueId());
         plugin.send(viewer, config.message("denied-self", "player", request.otherName(viewer.getUniqueId())));
         final Optional<Player> requester = proxy().getPlayer(request.requesterId());
         if (requester.isPresent()) {

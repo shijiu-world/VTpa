@@ -169,6 +169,26 @@ public class SmokeTest {
                         && defaults.message("travel-denied-target", "target", "小明",
                                 "server", "industry").contains("小明"));
 
+        check("被拒绝之后的封锁默认 300 秒", defaults.denyCooldownSeconds() == 300L
+                && TomlLite.integer(map, "general.deny-cooldown-seconds", 0L) == 300L);
+        check("随包配置里显式写出了 deny-cooldown-seconds",
+                map.containsKey("general.deny-cooldown-seconds"));
+        check("封锁期设成 0 就是不限（负数也不会变成别的怪值）",
+                new Probe(TomlLite.parse("[general]\ndeny-cooldown-seconds = 0\n"))
+                        .unwrap().denyCooldownSeconds() == 0L);
+        check("封锁跟「发起冷却」是两个独立的配置（改一个不影响另一个）",
+                new Probe(TomlLite.parse("[general]\ncooldown-seconds = 60\n"))
+                        .unwrap().denyCooldownSeconds() == 300L);
+        check("被拒绝时有专属提示语，且说得清还剩几秒、是谁",
+                map.containsKey("messages.deny-cooldown")
+                        && defaults.message("deny-cooldown", "seconds", "137", "player", "阿乙")
+                                .contains("阿乙")
+                        && defaults.message("deny-cooldown", "seconds", "137")
+                                .contains("137"));
+        check("封锁提示用的是用户要的那句话",
+                defaults.rawMessage("deny-cooldown")
+                        .equals("&e你接下来的 &6#seconds# &e秒内无法发送请求到 &6#player#"));
+
         // ---- 服务器名单 ----
         check("黑名单默认全放行", defaults.filter().allows("survival"));
         check("黑名单里的服被拦住", !new Probe(blacklistMap()).unwrap().filter().allows("bedwars"));

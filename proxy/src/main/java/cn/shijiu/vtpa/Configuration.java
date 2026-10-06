@@ -76,6 +76,7 @@ public final class Configuration {
     private final long requestTimeoutSeconds;
     private final long teleportDelaySeconds;
     private final long cooldownSeconds;
+    private final long denyCooldownSeconds;
     private final int maxOutgoingRequests;
     private final boolean allowCrossServer;
     private final boolean lockDestination;
@@ -155,6 +156,8 @@ public final class Configuration {
         this.requestTimeoutSeconds = Math.max(1L, TomlLite.integer(m, "general.request-timeout-seconds", 180L));
         this.teleportDelaySeconds = Math.max(0L, TomlLite.integer(m, "general.teleport-delay-seconds", 3L));
         this.cooldownSeconds = Math.max(0L, TomlLite.integer(m, "general.cooldown-seconds", 5L));
+        // 默认 300 秒：被拒绝之后五分钟内不许再找【那一个人】—— 免得有人被反复戳
+        this.denyCooldownSeconds = Math.max(0L, TomlLite.integer(m, "general.deny-cooldown-seconds", 300L));
         this.maxOutgoingRequests = (int) Math.max(1L, TomlLite.integer(m, "general.max-outgoing-requests", 3L));
         this.allowCrossServer = TomlLite.bool(m, "general.allow-cross-server", true);
         this.lockDestination = TomlLite.bool(m, "general.lock-destination", true);
@@ -392,6 +395,22 @@ public final class Configuration {
 
     public long cooldownSeconds() {
         return cooldownSeconds;
+    }
+
+    /**
+     * 请求被<b>拒绝</b>之后，隔多久才能再给<b>那一个人</b>发请求
+     * （{@code general.deny-cooldown-seconds}，默认 300 秒）。
+     *
+     * <p>跟上面的 {@link #cooldownSeconds()} 是两回事：那一项是「任何人」之间都要隔几秒，
+     * 这一项是「刚才拒绝我的那个人」专用的、长得多的冷静期 —— 目的是挡住反复刷请求，
+     * 而不是限制正常用法。所以：
+     * <ul>
+     *   <li>只锁方向：阿甲被阿乙拒绝，阿甲照样能找别人，阿乙也照样能找阿甲；</li>
+     *   <li>0 = 完全不限制（拒绝多少次都能立刻重发）。</li>
+     * </ul>
+     */
+    public long denyCooldownSeconds() {
+        return denyCooldownSeconds;
     }
 
     public int maxOutgoingRequests() {
