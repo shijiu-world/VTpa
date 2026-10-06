@@ -277,7 +277,7 @@ server-denied-target = "&6#target# &e所在的服务器不能使用传送请求"
 # 「传送到某个子服」的权限 vtpa.to.<服名>（只查跨服，节点的默认值是未定义 = 拒绝）
 #   travel-denied-self    我自己没有传送到 &6#server# 的权限
 #   travel-denied-target  真正要被挪过去的那个人（#target#）没有权限 —— 发给敲命令的人
-travel-denied-self = "&e你没有权限传送到 &6#server# &c服务器"
+travel-denied-self = "&e你没有权限传送到 &6#server# &e服务器"
 travel-denied-target = "&6#target# &e没有权限传送到 &6#server# &e服务器"
 cross-server-disabled = "&c没有开启跨服传送请求"
 same-server-disabled = "&c没有开启同服传送请求"
@@ -354,8 +354,7 @@ tpa = []
 tpahere = ["tpask", "tphere"]
 tpaccept = ["tpyes", "tpok"]
 tpadeny = ["tpano", "tpno", "tpdeny"]
-# tpall：群发请求。旧名 tpaall 留成别名，敲 /vtpa tpaall 照样认
-tpall = ["tpaall"]
+tpall = []
 tpacancel = ["tpcancel"]
 tpatoggle = ["tptoggle"]
 reload = ["rl"]
@@ -380,7 +379,6 @@ tpahere = "tpahere"
 tpaccept = "tpaccept"
 tpadeny = "tpadeny"
 tpall = "tpall"
-tpaall = "tpall"     # 旧名，留着让老玩家敲得动；不想要就删掉这一行（改这里要重启代理）
 tpaworld = "tpaworld"
 tpaserver = "tpaserver"
 tpacancel = "tpacancel"
