@@ -73,9 +73,10 @@ public class SmokeTest {
         check("随包配置里不再有 commands.tpaall 这个键", !map.containsKey("commands.tpaall"));
         final Configuration bundled = new Probe(map).unwrap();
         check("顶层注册了 /tpall", "tpall".equals(bundled.shortcuts().get("tpall")));
-        check("旧名 /tpaall 也注册着，且指向 tpall", "tpall".equals(bundled.shortcuts().get("tpaall")));
-        check("/vtpa tpaall 仍然认（老名字留成子命令别名）",
-                bundled.subAliases().getOrDefault("tpall", List.of()).contains("tpaall"));
+        // ★ 1.6.0 起旧名彻底不接管：既不再注册顶层 /tpaall，也不再当子命令别名
+        check("旧名 /tpaall 不再注册", !bundled.shortcuts().containsKey("tpaall"));
+        check("旧名 /tpaall 不再是子命令别名",
+                !bundled.subAliases().getOrDefault("tpall", List.of()).contains("tpaall"));
         check("用法提示的键跟着改成 usage-tpall", bundled.hasMessage("usage-tpall"));
         // 老 config.toml 升级上来：三处老键都得自动搬过来，否则命令会凭空消失
         final Configuration legacyAll = new Probe(TomlLite.parse(
@@ -108,7 +109,14 @@ public class SmokeTest {
         check("代理轮询默认也开着（双保险，防子服那条路静默失效）", defaults.movementPollAlso());
         check("子服名单默认对所有人生效（vtpa.server.bypass 默认不查）",
                 !defaults.serverBypassEnabled());
-        check("排查日志默认关（advanced.debug = false），控制台不刷屏", !defaults.debug());
+        check("运行日志默认关（advanced.debug = false），控制台不刷屏", !defaults.debug());
+        check("默认配置里已经没有 log-to-console 这一项了（并进 advanced.debug）",
+                !map.containsKey("advanced.log-to-console"));
+        check("默认配置里已经没有心跳间隔了（去掉了 PING/PONG 探测）",
+                !map.containsKey("bridge.ping-interval-seconds"));
+        check("桥接版本默认跟 jar 同版本（1.6.0）", "1.6.0".equals(defaults.bridgeVersion()));
+        check("桥接版本够新 → 子服端移动检测可用",
+                Backend.atLeast(defaults.bridgeVersion(), 1, 1, 0));
         check("落点默认锁在「接受那一刻」（对方之后走动不影响落点）",
                 defaults.lockDestination()
                         && Boolean.TRUE.equals(map.get("general.lock-destination")));

@@ -9,12 +9,12 @@
 
 - 源码：`D:\Code\mc\plugins\VTpa`（Maven 多模块）
 - 仓库：`git@github.com:shijiu-world/VTpa.git`（**走 SSH**，https 会被本机代理掐断 502）
-- 版本：**1.5.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限；1.4.0 = 被拒绝后的封锁；1.5.0 = 群发命令 `/tpaall` → `/tpall`）
+- 版本：**1.6.0**（1.1.0 = 移动检测协议；1.2.0 = 互相请求自动同意；1.3.0 = `vtpa.to.<服名>` 落脚权限；1.4.0 = 被拒绝后的封锁；1.5.0 = 群发命令 `/tpaall` → `/tpall`；1.6.0 = **去掉桥接心跳**（改看 `servers.list`）+ 运行时日志统一收归 `advanced.debug`）
 
 | 模块 | 产物 | 装哪 | 依赖 |
 |---|---|---|---|
-| `proxy/` | `proxy/target/VTpa-1.5.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
-| `bridge/` | `bridge/target/VTpaBridge-1.5.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
+| `proxy/` | `proxy/target/VTpa-1.6.0.jar` | **代理 Velocity** | `velocity-api` 3.2.0-SNAPSHOT (provided) |
+| `bridge/` | `bridge/target/VTpaBridge-1.6.0.jar` | **每个要用 TPA 的子服** | `paper-api` 1.21.4 (provided) |
 
 **为什么必须两个**：代理拿不到坐标也挪不动人，它只知道「谁在哪个服」，能做的只有把人从 A 服切到 B 服
 （落到出生点）。要精确到「传到张三脚下」，必须有子服那一半帮忙。
@@ -220,18 +220,26 @@ cd D:/Code/mc/plugins/VTpa
 `run-tests.sh` 覆盖：TOML 解析 / 配置取值 / 请求账本 / 插件消息协议 / 颜色 / 粒子预设 /
 空文本不发送 / 声音 / **版本协商** / 4 个新增 opcode / **`vtpa.to.<服名>` 拼节点与判定**。
 
-> ⚠️ **当前基线：201 条里 1 条失败（2026-10-06 实测）**，是
-> **随包 `config.toml` 没跟上代码默认值**，不是功能坏了：
+> ✅ **当前基线：222 条全部通过（2026-10-07 实测，1.6.0）**
 >
-> | 失败断言 | 代码默认 | `config.toml` 现状 |
-> |---|---|---|
-> | 子服没装桥接默认 switch | `Configuration.java:237` → `"switch"` | `bridge.missing = "deny"` |
+> 之前挂在「随包 `config.toml` 没跟上代码默认值」上的几条已经处理掉了：
 >
-> （原先「落点锁在接受那一刻」的那条也同源，已经补上 `general.lock-destination = true` 通过了。）
+> | 曾经失败 | 处理 |
+> |---|---|
+> | 落点锁在接受那一刻 | 补 `general.lock-destination = true` |
+> | 旧名 `/tpaall` 没注册 | **改断言**：1.6.0 起随包配置刻意不再接管旧名（服主已经改完名了），测试改成断言「不再注册」 |
 >
-> 补默认值时**不能只靠代码兜底** —— 测试会额外断言「随包配置里必须显式写出这个键」。
-> 修的时候对齐到代码那侧（`switch`），别把代码改成迁就配置。
-它跑的是 `proxy/tests/SmokeTest.java`（477 行），**bridge 模块无测试**（依赖 paper-api，实机验证）。
+> ⚠️ `/tpaall` → `/tpall` 的**老配置升级兜底**代码（`renameSubCommand` / `renameShortcut` /
+> `renameMessage`）**保留**：它只在老 `config.toml` 里真的还写着 `tpaall` 时才搬，
+> 不搬的话玩家的命令会凭空消失。别当成"旧名兼容"给删了。
+
+> ⚠️ 补默认值时**不能只靠代码兜底** —— 测试会额外断言「随包配置里必须显式写出这个键」。
+> 加了新配置项，记得同时写进 `proxy/src/main/resources/config.toml`，否则这条会红。
+>
+> ⚠️ 已知的一处**代码默认 vs 随包配置不一致**仍在（测试没覆盖，别以为没事）：
+> `bridge.missing` 代码兜底是 `"switch"`（`Configuration.java` 的 `normalizeMissing` 默认值），
+> 随包配置写的是 `"deny"`。要改就改配置那侧，别把代码改成迁就配置。
+它跑的是 `proxy/tests/SmokeTest.java`，**bridge 模块无测试**（依赖 paper-api，实机验证）。
 「互相请求」的判定（`sameOutcomeAs`）全是纯数据，在账本那一节里一并测了，不开服也能验。
 
 ⚠️ `run-tests.sh` 里用 `pwd -W` 把 Git Bash 的 `/d/...` 路径转成 `D:/...` —— 这个转换是必须的，
@@ -263,8 +271,8 @@ JAVA_HOME=D:/Code/Java/zulu25.34.17-ca-jdk25.0.3-win_x64 mvn -B -o package
 
 | 现象 | 看什么 |
 |---|---|
-| 一直提示「没装 VTpaBridge」 | 代理日志有没有 `子服 xxx 的桥接组件已就位`。没有 → 子服 jar 没装 / 通道名不一致 / **那个服还没人进去过**（心跳只发给有人的服） |
-| 能发请求、接受后没动静 | `bridge.missing` 是不是 `deny`；或目标服没装桥接 |
+| 一直提示「没装 VTpaBridge」 | 目标服在不在 `[servers]` 名单里 —— **1.6.0 起名单就=装了桥接的服**，不再心跳探测。不在名单就加进来，或把 `bridge.missing` 改成 `switch` |
+| 能发请求、接受后没动静 | 先看起服日志「子服名单」那行；再确认目标服 jar 装了、通道名一致、`bridge.missing` 是不是 `deny` |
 | 跨服传送后落出生点 | 目标服没装桥接 + `bridge.missing = "switch"` |
 | 倒计时一动就取消 | `movement.tolerance` 调大，或给 `vtpa.move.bypass`（⚠️ 有 `*` 权限的人本来就绕过） |
 | `/tpa` 提示命令不存在 | 被别的插件占了（日志会打 `快捷命令 /tpa 没注册上`），用 `/vtpa tpa` |

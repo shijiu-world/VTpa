@@ -9,8 +9,8 @@
 
 | jar | 装在哪 | 干什么 |
 | --- | --- | --- |
-| `VTpa-1.5.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
-| `VTpaBridge-1.5.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
+| `VTpa-1.6.0.jar` | **代理（Velocity）** | 命令、请求账本、倒计时、子服名单、提示语、切服 |
+| `VTpaBridge-1.6.0.jar` | **每个要用 TPA 的子服** | 报坐标、落地传送、播粒子与声音、**实时盯移动** |
 
 ⚠️ 两个 jar **版本要配套**：移动检测是 1.1.0 起才有的协议。子服还停在 1.0.0 时
 不会报错，只是自动退回代理轮询（日志会提示「版本偏老」），但判定会慢半拍。
@@ -37,8 +37,8 @@ PAPI、PAPIProxyBridge 任何东西，也不依赖数据库。
 ./build.sh          # 或：JAVA_HOME=... mvn -B -o package
 
 # 2. 丢 jar
-proxy/target/VTpa-1.5.0.jar          → 代理的 plugins/
-bridge/target/VTpaBridge-1.5.0.jar   → 每个要参与的子服的 plugins/
+proxy/target/VTpa-1.6.0.jar          → 代理的 plugins/
+bridge/target/VTpaBridge-1.6.0.jar   → 每个要参与的子服的 plugins/
 
 # 3. 重启（子服和代理都要重启），会自动生成 plugins/vtpa/config.toml
 # 4. 改配置后 /vtpa reload（需要 vtpa.reload）
@@ -59,7 +59,7 @@ bridge/target/VTpaBridge-1.5.0.jar   → 每个要参与的子服的 plugins/
 | --- | --- |
 | `/tpa <玩家>` | 请求**传送到对方那里**（动的是我） |
 | `/tpahere <玩家>` | 请求**对方传送到我这儿**（动的是对方） |
-| `/tpall` | 请求**全服在线玩家**传送到我这儿（要 `vtpa.all` 权限；1.5.0 前叫 `/tpaall`，旧名仍可用） |
+| `/tpall` | 请求**全服在线玩家**传送到我这儿（要 `vtpa.all` 权限；1.5.0 前叫 `/tpaall`，**1.6.0 起旧名不再接管**） |
 | `/tpaccept [玩家]` | 接受请求。有多条待处理时不写名字会让你选一个 |
 | `/tpadeny [玩家]` | 拒绝请求 |
 | `/tpacancel [玩家]` | 撤回我发出去的请求（不用干等 3 分钟） |
@@ -412,11 +412,25 @@ max-per-player = 4
 
 ```toml
 [bridge]
-channel               = "vtpa:main"   # 改了要重启，且子服同步改（子服的通道目前写死在代码里）
-missing               = "switch"      # deny = 拒绝；switch = 跨服只切服（落出生点）
-timeout-millis        = 1200          # 问坐标最多等多久
-ping-interval-seconds = 30            # 心跳间隔，用来判断哪个服装了桥接
+channel        = "vtpa:main"   # 改了要重启，且子服同步改（子服的通道目前写死在代码里）
+missing        = "switch"      # deny = 拒绝；switch = 跨服只切服（落出生点）
+timeout-millis = 1200          # 问坐标最多等多久
+version        = "1.6.0"       # 子服上装的 VTpaBridge 版本（判断是否支持子服端移动检测）
 ```
+
+**谁算「装了桥接」**：看 `[servers]` 那份名单 —— 名单内的服就有，名单外的服走 `missing` 兜底。
+没装桥接的服请务必放进黑名单（白名单模式下就是别写进来），
+不然代理每次都会白等 `timeout-millis` 那么久才放弃。
+
+> ℹ️ 早期版本靠「定期发 PING、等 PONG」的心跳来探测桥接在不在，**已经去掉了**。
+> 子服一卡或没人在线就丢心跳，代理当场判它离线、还往控制台刷一行告警 ——
+> 装没装桥接是部署时就知道的事，写进配置一次到位更稳。
+> 老配置里的 `ping-interval-seconds` 留着也不会报错，只是不再生效。
+
+**控制台日志**：所有运行时日志（谁发给谁、传到了哪、走哪条移动检测 …）
+统一由 `advanced.debug` 一个开关管，默认 `false` = 控制台干干净净。
+查纠纷就把它改成 `true`、`/vtpa reload`，查完再改回来。
+（起服 / reload 那份「配置速览」不算运行时日志，一直都打。）
 
 ### 6. 命令名
 
@@ -432,21 +446,24 @@ tpahere = "tpahere"
 tpaccept = "tpaccept"
 tpadeny = "tpadeny"
 tpall = "tpall"
-tpaall = "tpall"     # 旧名（1.5.0 起改名），留着让老玩家敲得动；删掉就只剩 /tpall
 tpacancel = "tpacancel"
 tpatoggle = "tpatoggle"
 ```
 
-改名的部分（1.5.0 起群发命令叫 `/tpall`，旧名 `/tpaall` 默认仍保留）：
+**改名**：1.5.0 起群发命令叫 `/tpall`，旧名 `/tpaall` 在 1.5.x 里还留着当别名；
+**1.6.0 起随包配置不再接管旧名**（想留就自己加下面两行）：
 
 ```toml
-[commands]           # /vtpa 后面的那个词；旧名在这里留成别名
+[commands]           # /vtpa 后面的那个词
 tpall = ["tpaall"]
+
+[shortcuts]          # 顶层短命令
+tpaall = "tpall"
 ```
 
-> 升级上来的老 `config.toml` 不用手改 —— 插件会把 `commands.tpaall` /
-> `shortcuts.tpaall` / `messages.usage-tpaall` 三处自动搬到新名下，
-> 老名字照样能用。想彻底去掉旧名，把上面 `tpaall` 那两行删掉再重启代理。
+> 从 1.5.x 升级上来的老 `config.toml` 不会出问题 —— 插件会把 `commands.tpaall` /
+> `shortcuts.tpaall` / `messages.usage-tpaall` 三处自动搬到新名下
+> （不搬的话命令会凭空消失）。搬完之后旧名字照样能用；不想让它能用就把那两行删掉。
 
 ---
 
@@ -468,8 +485,8 @@ tpall = ["tpaall"]
 
 | 现象 | 看什么 |
 | --- | --- |
-| 一直提示「没有装 VTpaBridge」 | 代理日志里有没有 `子服 xxx 的桥接组件已就位`。没有 → 子服 jar 没装 / 通道名不一致 / 那个服还没人进去过（心跳只发给有人的服） |
-| 能发请求、接受后没动静 | 看代理日志，`bridge.missing` 是不是 `deny`；或者目标服没装桥接 |
+| 一直提示「没有装 VTpaBridge」 | 目标服在不在 `[servers]` 名单里（名单 = 装了桥接的服）。不在就加进来；或者 `bridge.missing` 改成 `switch` 先凑合 |
+| 能发请求、接受后没动静 | 先看代理起服日志里「子服名单」那行；再确认目标服 jar 装了、通道名一致、`bridge.missing` 是不是 `deny` |
 | 跨服传送后落在出生点 | 目标服没装桥接，且 `bridge.missing = "switch"` |
 | 倒计时一动就取消 | `movement.tolerance` 调大，或给 `vtpa.move.bypass` |
 | `/tpa` 提示命令不存在 | 被别的插件占了。代理日志会打 `快捷命令 /tpa 没注册上`，改用 `/vtpa tpa` |

@@ -9,13 +9,10 @@ import com.velocitypowered.api.scheduler.ScheduledTask;
 import org.slf4j.Logger;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -34,11 +31,15 @@ import java.util.function.Consumer;
  * <p>子服没装桥接时这套全部失效，走 {@code bridge.missing} 配置的兜底策略
  * （见 {@link Configuration#bridgeMissing()}）。
  *
- * <p>「这个服装没装桥接」靠心跳判断：定期给有人的服发 {@code PING}，
- * 回 {@code PONG} 的就记进 {@link #ready}。这套是<b>失效安全</b>的 ——
- * 误判成「没装」最坏只是拒绝一次请求，不会把人传到莫名其妙的地方。
- * 记进 ready 的服还会定期过期（见 {@link #expireStale()}），子服重启 / 桥接卸载之后
- * 不会一直被当成「还在」。
+ * <p>「这个服装没装桥接」<b>不靠探测，看配置</b>：{@code [servers]} 的名单
+ * （{@code servers.mode} + {@code servers.list}）既决定哪些服能发传送请求，
+ * 也就等于「这些服装了桥接」（见 {@link #isReady(String)}）。理由：
+ * <ul>
+ *   <li>早先那套「定期发 PING、等 PONG」的心跳看着聪明，实际净添麻烦 ——
+ *       子服一卡或没人在线就丢心跳，代理当场判定「桥接离线」，控制台还刷一行告警；</li>
+ *   <li>装没装桥接是<b>部署时就知道的事</b>，写进配置一次到位，比每次启动重新猜一遍稳。</li>
+ * </ul>
+ * 桥接版本号同理，走 {@code bridge.version}（见 {@link Configuration#bridgeVersion()}）。
  */
 public final class Backend {
 
@@ -46,12 +47,6 @@ public final class Backend {
     private final Logger logger;
     private final MinecraftChannelIdentifier channel;
 
-    /** 已知装了桥接的服务器名（小写）。 */
-    private final Set<String> ready = ConcurrentHashMap.newKeySet();
-    /** 各子服桥接的版本号（小写服名 → 版本串）。用来判断它支不支持新协议。 */
-    private final Map<String, String> versions = new ConcurrentHashMap<>();
-    /** 各子服最后一次回 PONG 的时间戳（小写服名 → 毫秒）。用来给 {@link #ready} 过期。 */
-    private final Map<String, Long> lastPong = new ConcurrentHashMap<>();
     /**
      * 正在等坐标回包的查询（按玩家 UUID，<b>同一人可能同时挂着好几条</b>）。
      *
@@ -137,17 +132,11 @@ public final class Backend {
         final String from = serverNameOf(event.getSource());
         switch (packet.op()) {
             case Wire.OP_PONG:
-                if (from != null) {
-                    final String lower = from.toLowerCase(java.util.Locale.ROOT);
-                    lastPong.put(lower, System.currentTimeMillis());
-                    final boolean first = ready.add(lower);
-                    final String version = packet.text() == null ? "" : packet.text();
-                    versions.put(lower, version);
-                    if (first) {
-                        logger.info("[vtpa] 子服 " + from + " 的桥接组件已就位（" + version + "）"
-                                + (supports(lower, 1, 1, 0)
-                                ? "，支持子服端移动检测。" : "，版本偏老，移动检测退回代理轮询。"));
-                    }
+                // 心跳机制已移除（代理不再发 PING），这里留着只是为了协议兼容：
+                // 万一还有老桥接在回 PONG，也不至于被当成坏包。排查时记一笔就够了。
+                if (plugin.configuration().debug()) {
+                    logger.info("[vtpa] 收到子服 " + from + " 的 PONG（" + packet.text()
+                            + "）—— 代理已经不发心跳了，这条可以忽略。");
                 }
                 break;
             case Wire.OP_POS_RES:
@@ -248,18 +237,20 @@ public final class Backend {
     // 发包
     // ------------------------------------------------------------------
 
-    /** 这个服确认装了桥接吗？（没确认过 = false） */
+    /**
+     * 这个服装了桥接吗？
+     *
+     * <p>看配置，不探测：{@code [servers]} 名单里允许玩传送请求的服，就算装了桥接。
+     * 想让某个服「只能切服、不能精确落点」，把它从 {@code servers.list} 里挪出去即可
+     * （黑名单模式下就是加进 list）。
+     *
+     * @param serverName Velocity 里的服务器名；null（控制台 / 人还没进服）按「没有」处理
+     */
     public boolean isReady(final String serverName) {
-        return serverName != null && ready.contains(serverName.toLowerCase(java.util.Locale.ROOT));
-    }
-
-    public Set<String> readyServers() {
-        return ready;
-    }
-
-    /** 给某个服发心跳（有没有人无所谓，没人连就发不出去，返回 false）。 */
-    public boolean ping(final RegisteredServer server) {
-        return server.sendPluginMessage(channel, Wire.ping());
+        if (serverName == null) {
+            return false;
+        }
+        return plugin.configuration().filter().allows(serverName);
     }
 
     /**
@@ -296,41 +287,6 @@ public final class Backend {
                 })
                 .delay(plugin.configuration().bridgeTimeoutMillis(), TimeUnit.MILLISECONDS)
                 .schedule();
-    }
-
-    // ------------------------------------------------------------------
-    // ready 的过期
-    // ------------------------------------------------------------------
-
-    /**
-     * 把太久没回心跳的子服移出 {@link #ready}。
-     *
-     * <p>子服重启 / 桥接被卸载，代理是<b>收不到任何通知</b>的 —— 不主动过期的话这个服会
-     * 永远留在 ready 里，于是坐标照问、落点照发，全都石沉大海（玩家看到的就是「没反应」）。
-     * 移出之后相关请求改走 {@code bridge.missing} 的兜底，比一直假装它有桥接安全。
-     *
-     * <p>阈值取 3 个心跳周期：正常服每一轮心跳都会刷新 {@link #lastPong}，
-     * 偶尔丢一两个包也不会被误判。
-     */
-    public void expireStale() {
-        final long maxAge = Math.max(5L, plugin.configuration().pingIntervalSeconds()) * 3L * 1000L;
-        final long now = System.currentTimeMillis();
-        final List<String> gone = new ArrayList<>();
-        for (final Map.Entry<String, Long> entry : lastPong.entrySet()) {
-            if (now - entry.getValue() <= maxAge) {
-                continue;
-            }
-            final String name = entry.getKey();
-            lastPong.remove(name);
-            if (ready.remove(name)) {
-                versions.remove(name);
-                gone.add(name);
-            }
-        }
-        if (!gone.isEmpty()) {
-            logger.info("[vtpa] 子服 " + String.join("、", gone) + " 已经超过 " + (maxAge / 1000L)
-                    + " 秒没回心跳 —— 视为桥接已离线，相关请求改走 bridge.missing 兜底。");
-        }
     }
 
     // ------------------------------------------------------------------
@@ -425,8 +381,11 @@ public final class Backend {
         final String name = server.getServerInfo().getName();
         if (!supports(name, 1, 1, 0)) {
             // 排查用：之前移动取消「静默失效」多半栽在这里（版本没协商上就退回轮询了）
-            logger.info("[vtpa] 子服 " + name + " 的桥接版本是「" + versions.get(name.toLowerCase(java.util.Locale.ROOT))
-                    + "」，不支持移动监视 → 退回代理轮询。");
+            // ⚠️ 每次传送都来一行太吵，只在 advanced.debug = true 时打
+            if (plugin.configuration().debug()) {
+                logger.info("[vtpa] 桥接版本是「" + plugin.configuration().bridgeVersion()
+                        + "」（bridge.version），不支持移动监视 → 退回代理轮询。");
+            }
             return false;
         }
         return server.sendPluginMessage(channel, Wire.watch(player.getUniqueId(), tolerance,
@@ -458,13 +417,18 @@ public final class Backend {
         return server.sendPluginMessage(channel, Wire.sound(player.getUniqueId(), spec));
     }
 
-    /** 这个服的桥接版本够不够新（用于「子服能不能干某件事」的判断）。 */
+    /**
+     * 桥接的版本够不够新（用于「子服能不能干某件事」的判断，比如子服端移动监视）。
+     *
+     * <p>版本来自 {@code bridge.version} 这一项配置 —— 装哪个版本的桥接是部署时就知道的，
+     * 没必要（也没法在去掉心跳之后）去子服那儿问。子服名单里的服共用这一个版本号，
+     * 所以<b>所有子服的桥接请保持同版本</b>；版本填低了最多退回代理轮询，填高了才会出事。
+     */
     public boolean supports(final String serverName, final int major, final int minor, final int patch) {
         if (serverName == null) {
             return false;
         }
-        final String version = versions.get(serverName.toLowerCase(java.util.Locale.ROOT));
-        return atLeast(version, major, minor, patch);
+        return atLeast(plugin.configuration().bridgeVersion(), major, minor, patch);
     }
 
     /** 比较 {@code 1.10.2} 这种版本串；解析不出来一律当「不够新」（保守）。 */

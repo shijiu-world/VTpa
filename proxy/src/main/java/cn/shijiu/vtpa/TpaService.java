@@ -339,7 +339,7 @@ public final class TpaService {
         if (!Colors.isBlank(sentRaw)) {
             requester.sendMessage(buildSentMessage(sentRaw, target.getUsername(), seconds));
         }
-        if (config.logToConsole()) {
+        if (config.debug()) {
             plugin.logger().info("[vtpa] " + requester.getUsername() + " -> " + target.getUsername()
                     + " (" + type + ")");
         }
@@ -405,7 +405,7 @@ public final class TpaService {
                 "player", pending.destinationName(), "seconds", String.valueOf(seconds)));
         plugin.send(dest.get(), config.message(destKey,
                 "player", pending.moverName(), "seconds", String.valueOf(seconds)));
-        if (config.logToConsole()) {
+        if (config.debug()) {
             plugin.logger().info("[vtpa] " + pending.moverName() + " ↔ " + pending.destinationName()
                     + " 互相请求，自动同意：" + pending.moverName() + " → " + pending.destinationName());
         }
@@ -582,7 +582,7 @@ public final class TpaService {
         }
         plugin.send(requester, config.message(summaryKey,
                 "amount", String.valueOf(sent), "skipped", String.valueOf(skipped)));
-        if (config.logToConsole()) {
+        if (config.debug()) {
             plugin.logger().info("[vtpa] " + requester.getUsername() + " /" + logName
                     + "：发出 " + sent + " 条，跳过 " + skipped + " 人。");
         }

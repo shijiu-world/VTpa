@@ -129,7 +129,7 @@ public final class Configuration {
     private final String bridgeChannel;
     private final String bridgeMissing;
     private final long bridgeTimeoutMillis;
-    private final long pingIntervalSeconds;
+    private final String bridgeVersion;
     // ---------------- 命令 ----------------
     private final List<String> rootAliases;
     private final Map<String, List<String>> subAliases;
@@ -137,7 +137,6 @@ public final class Configuration {
     // ---------------- 杂项 ----------------
     private final boolean autoReload;
     private final int autoReloadIntervalSeconds;
-    private final boolean logToConsole;
     private final boolean debug;
     private final boolean saveToggles;
 
@@ -245,7 +244,8 @@ public final class Configuration {
         this.bridgeChannel = TomlLite.string(m, "bridge.channel", "vtpa:main").trim();
         this.bridgeMissing = normalizeMissing(TomlLite.string(m, "bridge.missing", "switch"));
         this.bridgeTimeoutMillis = Math.max(100L, TomlLite.integer(m, "bridge.timeout-millis", 1200L));
-        this.pingIntervalSeconds = Math.max(5L, TomlLite.integer(m, "bridge.ping-interval-seconds", 30L));
+        // 心跳去掉之后没人回版本号了，改成配置里直接写：子服上装的是哪个版本的 VTpaBridge
+        this.bridgeVersion = TomlLite.string(m, "bridge.version", "1.5.0").trim();
 
         // [commands] 段：root 是主命令的别名，其余每个键都是「子命令主名 = [别名...]」
         final Map<String, List<String>> commands = new LinkedHashMap<>();
@@ -277,7 +277,6 @@ public final class Configuration {
         this.autoReload = TomlLite.bool(m, "advanced.auto-reload", false);
         this.autoReloadIntervalSeconds =
                 (int) Math.max(1L, TomlLite.integer(m, "advanced.auto-reload-interval-seconds", 3L));
-        this.logToConsole = TomlLite.bool(m, "advanced.log-to-console", true);
         this.debug = TomlLite.bool(m, "advanced.debug", false);
         this.saveToggles = TomlLite.bool(m, "advanced.save-toggles", true);
     }
@@ -756,8 +755,14 @@ public final class Configuration {
         return bridgeTimeoutMillis;
     }
 
-    public long pingIntervalSeconds() {
-        return pingIntervalSeconds;
+    /**
+     * 子服上装的 VTpaBridge 版本号（{@code bridge.version}）。
+     *
+     * <p>代理拿它判断子服支不支持「子服端移动监视」这类新协议。
+     * 填低了最多退回代理轮询（还能用），填高了才会真出问题 —— 拿不准就填实际装的版本。
+     */
+    public String bridgeVersion() {
+        return bridgeVersion;
     }
 
     /** 主命令 /vtpa 的别名（默认 ["vt"]）；写空 list 就只用 /vtpa。 */
@@ -783,20 +788,14 @@ public final class Configuration {
     }
 
     /**
-     * 传送记录（谁发给谁、传成功没）打不打 —— 这是日常运营日志。
-     *
-     * <p>跟 {@link #debug()} 的区别：那一项是<b>排查细节</b>（走哪条移动检测、落点锁在
-     * 哪、子服名单怎么判的），默认关；这一项默认开。
-     */
-    public boolean logToConsole() {
-        return logToConsole;
-    }
-
-    /**
-     * 排查用的细节日志打不打（{@code advanced.debug}）。
+     * 运行时日志（谁发给谁、传成功没、走哪条移动检测、落点锁在哪 …）打不打
+     * —— 这是控制台上唯一的一排开关（{@code advanced.debug}）。
      *
      * <p>默认关 —— 平时控制台干干净净，出问题了开一下、复现一次、再关掉。
      * 改完 {@code /vtpa reload} 就生效，不用重启。
+     *
+     * <p>⚠️ 起服 / {@code /vtpa reload} 那份「配置速览」不受这一项影响，
+     * 那是给你确认改没改对的，一直都打。
      */
     public boolean debug() {
         return debug;

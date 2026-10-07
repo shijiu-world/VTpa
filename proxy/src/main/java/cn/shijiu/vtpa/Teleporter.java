@@ -437,7 +437,7 @@ public final class Teleporter {
             otherArgs.add(countdown.moverName);
             notify(countdown.destId, otherKey, otherArgs.toArray());
         }
-        if (plugin.configuration().logToConsole()) {
+        if (plugin.configuration().debug()) {
             plugin.logger().info("[vtpa] 传送取消（" + selfKey + "）：" + countdown.moverName
                     + " → " + countdown.destName);
         }
@@ -638,7 +638,7 @@ public final class Teleporter {
                             plugin.configuration().arriveTicks());
                     plugin.backend().sound(player, plugin.configuration().sound("arrive"));
                     plugin.send(player, plugin.configuration().message("teleport-done"));
-                    if (plugin.configuration().logToConsole()) {
+                    if (plugin.configuration().debug()) {
                         plugin.logger().info("[vtpa] " + player.getUsername() + " 跨服传送到 "
                                 + pending.server + " " + pending.loc);
                     }
@@ -648,7 +648,7 @@ public final class Teleporter {
     }
 
     private void log(final Countdown countdown, final Wire.Loc loc) {
-        if (plugin.configuration().logToConsole()) {
+        if (plugin.configuration().debug()) {
             plugin.logger().info("[vtpa] " + countdown.moverName + " 传送到 " + countdown.destName
                     + " 的位置：" + loc);
         }

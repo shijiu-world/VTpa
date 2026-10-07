@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "vtpa",
         name = "VTpa",
-        version = "1.5.0",
+        version = "1.6.0",
         description = "跨服传送请求：/tpa /tpahere /tpall /tpaccept /tpadeny",
         authors = {"拾玖世界"}
 )
@@ -96,14 +96,13 @@ public final class VTpa {
         service.abortFor(player.getUniqueId());
     }
 
-    /** 进到（或切换到）某个服：给那个服发心跳，顺便看看有没有等着落地的传送。 */
+    /** 进到（或切换到）某个服：看看有没有等着落地的传送。 */
     @Subscribe
     public void onServerPostConnect(final ServerPostConnectEvent event) {
         final RegisteredServer server = event.getPlayer().getCurrentServer()
                 .map(connection -> connection.getServer())
                 .orElse(null);
         if (server != null) {
-            backend.ping(server);
             teleporter.onServerConnect(event.getPlayer(), server.getServerInfo().getName());
         }
     }
@@ -201,19 +200,8 @@ public final class VTpa {
                 logger.warn("[vtpa] 清扫过期请求时出错（这一轮跳过，任务继续）：" + e);
             }
         }).repeat(1L, TimeUnit.SECONDS).schedule();
-
-        // 桥接心跳：定期问有人的服「你在吗」，用来判断能不能精确到坐标
-        proxy.getScheduler().buildTask(this, () -> {
-            // 清掉太久没回心跳的服（子服重启 / 桥接被卸载后不该一直当它还在）
-            backend.expireStale();
-            for (final RegisteredServer server : proxy.getAllServers()) {
-                if (!server.getPlayersConnected().isEmpty()) {
-                    backend.ping(server);
-                }
-            }
-        }).delay(3L, TimeUnit.SECONDS)
-                .repeat(Math.max(5L, config.pingIntervalSeconds()), TimeUnit.SECONDS)
-                .schedule();
+        // 桥接心跳已移除：哪个服装了桥接直接看 [servers] 名单（Backend#isReady），
+        // 不再定期发 PING / 等 PONG —— 少一层会误判的探测，也少一堆控制台噪声。
     }
 
     private long configMtime() {
@@ -269,8 +257,10 @@ public final class VTpa {
                 + config.teleportDelaySeconds() + " 秒，发起冷却 " + config.cooldownSeconds()
                 + " 秒，被拒绝后 " + config.denyCooldownSeconds()
                 + " 秒内不能再发给同一人（0 = 不限）");
+        // ⚠️ 这一份名单身兼两职：既决定哪些服能玩传送请求，也等于「这些服装了桥接」
         logger.info("[vtpa] 子服名单：" + (filter.isWhitelist() ? "白名单" : "黑名单")
-                + (filter.servers().isEmpty() ? "（空 = 全都参与）" : " " + String.join(", ", filter.servers())));
+                + (filter.servers().isEmpty() ? "（空 = 全都参与）" : " " + String.join(", ", filter.servers()))
+                + " —— 同样当作「装了桥接的服」，名单外的服走 bridge.missing 兜底");
         logger.info("[vtpa] 跨服请求：" + (config.allowCrossServer() ? "开" : "关")
                 + "，同服请求：" + (config.allowSameServer() ? "开" : "关")
                 + (config.allowCrossServer()
@@ -298,10 +288,12 @@ public final class VTpa {
         } else {
             logger.info("[vtpa] 声音：关");
         }
-        logger.info("[vtpa] 排查日志：" + (config.debug() ? "开"
-                : "关（要排查就把 advanced.debug 改成 true，重载即可）"));
-        logger.info("[vtpa] 桥接通道 " + config.bridgeChannel()
-                + "，子服没装桥接时：" + ("switch".equals(config.bridgeMissing())
+        logger.info("[vtpa] 运行日志：" + (config.debug() ? "开（每次传送都会往控制台打一行）"
+                : "关（要查纠纷就把 advanced.debug 改成 true，重载即可）"));
+        logger.info("[vtpa] 桥接通道 " + config.bridgeChannel() + "，桥接版本 " + config.bridgeVersion()
+                + "（子服端移动检测："
+                + (Backend.atLeast(config.bridgeVersion(), 1, 1, 0) ? "可用" : "不可用，退回代理轮询")
+                + "），名单外的服：" + ("switch".equals(config.bridgeMissing())
                 ? "跨服只切服（落出生点）" : "拒绝"));
         logger.info("[vtpa] 粒子特效：" + (config.particlesEnabled()
                 ? "开（倒计时" + (config.particleCountdown() == null ? "关" : "开")
